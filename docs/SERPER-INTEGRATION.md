@@ -17,7 +17,7 @@ Serper.dev, Google arama sonuçlarını ve web scraping işlemlerini API üzerin
 API anahtarınız `.env` ve `.env.example` dosyalarına eklenmiştir:
 
 ```env
-SERPER_API_KEY=40f6d73687ffceeac8abebdd40bdf80ca1e8b74a
+SERPER_API_KEY=your_serper_api_key
 ```
 
 ## 📁 Oluşturulan Dosyalar

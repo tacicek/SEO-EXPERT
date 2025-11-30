@@ -22,7 +22,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_KEY=your-service-role-key
 
 # Anthropic AI
-ANTHROPIC_API_KEY=sk-ant-xxx
+ANTHROPIC_API_KEY=your_anthropic_api_key
 
 # Serper (Google Search API)
 SERPER_API_KEY=your-serper-key
@@ -89,7 +89,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # AI Configuration  
-ANTHROPIC_API_KEY=sk-ant-api03-xxx
+ANTHROPIC_API_KEY=your_anthropic_api_key
 
 # Search API
 SERPER_API_KEY=xxx

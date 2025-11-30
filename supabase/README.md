@@ -13,7 +13,7 @@ Bu dosya Supabase veritabanınızı kurmak için gerekli adımları içerir.
 `.env` dosyanız zaten oluşturuldu ve aşağıdaki değişkenleri içeriyor:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://mxvtxhaaxajkvtsjcqte.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
@@ -39,7 +39,7 @@ npm install -g supabase
 supabase login
 
 # Projeyi bağla
-supabase link --project-ref mxvtxhaaxajkvtsjcqte
+supabase link --project-ref your_project_ref
 
 # Migration'ı çalıştır
 supabase db push
