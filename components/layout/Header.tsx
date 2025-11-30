@@ -34,11 +34,11 @@ export function Header() {
                         </Link>
                         {user && (
                             <>
+                                <Link href="/projects" className="transition-colors hover:text-foreground/80 text-muted-foreground">
+                                    Projects
+                                </Link>
                                 <Link href="/analyses" className="transition-colors hover:text-foreground/80 text-muted-foreground">
                                     Analyses
-                                </Link>
-                                <Link href="/sites" className="transition-colors hover:text-foreground/80 text-muted-foreground">
-                                    Sites
                                 </Link>
                             </>
                         )}
