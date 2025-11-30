@@ -44,24 +44,34 @@ export default function EditorPage() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
+      <div className="flex flex-col gap-6">
         {/* Editor Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between bg-gradient-to-r from-primary/5 to-background p-4 rounded-lg border">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="outline" size="icon" asChild className="rounded-full">
               <Link href="/"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
             <div>
-              <h1 className="text-xl font-semibold">{title}</h1>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Last saved: Just now</span>
-                <Badge variant="outline" className="text-xs">Draft</Badge>
+              <h1 className="text-2xl font-bold">{title}</h1>
+              <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
+                <div className="flex items-center gap-1">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span>Auto-saved</span>
+                </div>
+                <span>•</span>
+                <Badge variant="secondary" className="text-xs">Draft</Badge>
+                <span>•</span>
+                <span>{statistics.total_sentences} sentences analyzed</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm"><Share2 className="mr-2 h-4 w-4" /> Share</Button>
-            <Button size="sm"><Save className="mr-2 h-4 w-4" /> Save Report</Button>
+            <Button variant="outline" size="sm">
+              <Share2 className="mr-2 h-4 w-4" /> Share
+            </Button>
+            <Button size="sm" className="bg-primary">
+              <Save className="mr-2 h-4 w-4" /> Save Report
+            </Button>
           </div>
         </div>
 
