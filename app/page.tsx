@@ -33,7 +33,7 @@ export default function Home() {
     }
 
     setIsAnalyzing(true);
-    
+
     analyzeContent(
       { url: url.trim() },
       {
@@ -65,7 +65,7 @@ export default function Home() {
         {/* Hero Section */}
         <section className="py-12 flex flex-col items-center text-center gap-6">
           <Badge variant="secondary" className="px-4 py-1 text-sm">
-            AI-Powered SEO Expert
+            Seomind - AI-Powered SEO Expert
           </Badge>
           <h1 className="text-4xl md:text-6xl font-bold tracking-tight max-w-3xl">
             Transform Your Content into <span className="text-primary">Expert Authority</span>
@@ -84,9 +84,9 @@ export default function Home() {
               onKeyPress={handleKeyPress}
               disabled={isPending}
             />
-            <Button 
-              size="lg" 
-              className="h-12 px-8" 
+            <Button
+              size="lg"
+              className="h-12 px-8"
               onClick={handleAnalyze}
               disabled={isPending || !url.trim()}
             >

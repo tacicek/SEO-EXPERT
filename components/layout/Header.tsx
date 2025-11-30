@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Settings, User, LogOut, LayoutDashboard, LogIn, UserPlus } from "lucide-react";
@@ -26,7 +26,8 @@ export function Header() {
             <div className="container flex h-16 items-center justify-between">
                 <div className="flex items-center gap-6">
                     <Link href="/" className="flex items-center gap-2 font-bold text-xl">
-                        <span className="text-primary">SEO</span> Expert AI
+                        <img src="/seomind-logo.png" alt="Seomind Logo" className="h-8 w-8 object-contain" />
+                        <span className="text-primary">Seomind</span>
                     </Link>
                     <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
                         <Link href="/" className="transition-colors hover:text-foreground/80 text-foreground">
@@ -83,7 +84,7 @@ export function Header() {
                                             </Link>
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
-                                        <DropdownMenuItem 
+                                        <DropdownMenuItem
                                             className="cursor-pointer text-red-600 focus:text-red-600"
                                             onClick={() => signOut()}
                                         >

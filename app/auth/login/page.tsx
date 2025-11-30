@@ -25,16 +25,16 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      
+
       // Check if there's a pending analysis
       const pendingUrl = sessionStorage.getItem('pendingAnalysisUrl');
       const returnUrl = sessionStorage.getItem('returnUrl');
-      
+
       if (pendingUrl) {
         // Clear session storage
         sessionStorage.removeItem('pendingAnalysisUrl');
         sessionStorage.removeItem('returnUrl');
-        
+
         // Redirect to home with the URL to analyze
         router.push(`/?analyzeUrl=${encodeURIComponent(pendingUrl)}`);
       } else if (returnUrl) {
@@ -54,15 +54,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Home
           </Link>
           <h1 className="text-3xl font-bold mb-2">Welcome Back</h1>
-          <p className="text-muted-foreground">Sign in to your SEO Expert AI account</p>
+          <p className="text-muted-foreground">Sign in to your Seomind account</p>
         </div>
 
         <Card className="shadow-xl">
@@ -96,8 +96,8 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
-                  <Link 
-                    href="/auth/forgot-password" 
+                  <Link
+                    href="/auth/forgot-password"
                     className="text-xs text-primary hover:underline"
                   >
                     Forgot password?
@@ -114,9 +114,9 @@ export default function LoginPage() {
                 />
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full" 
+              <Button
+                type="submit"
+                className="w-full"
                 disabled={loading}
               >
                 {loading ? (
