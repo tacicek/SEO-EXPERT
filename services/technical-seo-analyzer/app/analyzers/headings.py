@@ -1,4 +1,4 @@
-from app.utils.fetcher import parse_html
+from app.utils.fetcher import parse_html, sanitize_text
 from app.utils.scorer import calculate_score_from_issues
 
 class HeadingAnalyzer:
@@ -11,12 +11,12 @@ class HeadingAnalyzer:
     def analyze(self) -> dict:
         """Run full heading analysis"""
         # Extract all headings
-        h1 = [h.get_text().strip() for h in self.soup.find_all('h1')]
-        h2 = [h.get_text().strip() for h in self.soup.find_all('h2')]
-        h3 = [h.get_text().strip() for h in self.soup.find_all('h3')]
-        h4 = [h.get_text().strip() for h in self.soup.find_all('h4')]
-        h5 = [h.get_text().strip() for h in self.soup.find_all('h5')]
-        h6 = [h.get_text().strip() for h in self.soup.find_all('h6')]
+        h1 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h1')]
+        h2 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h2')]
+        h3 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h3')]
+        h4 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h4')]
+        h5 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h5')]
+        h6 = [sanitize_text(h.get_text().strip()) for h in self.soup.find_all('h6')]
         
         # Build hierarchy
         hierarchy = self._build_hierarchy()
@@ -49,7 +49,7 @@ class HeadingAnalyzer:
             for idx, heading in enumerate(self.soup.find_all(f'h{i}')):
                 hierarchy.append({
                     'level': i,
-                    'text': heading.get_text().strip(),
+                    'text': sanitize_text(heading.get_text().strip()),
                     'position': len(hierarchy)
                 })
         

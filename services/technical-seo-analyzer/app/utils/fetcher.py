@@ -57,3 +57,27 @@ def parse_html(html_content: str) -> BeautifulSoup:
         BeautifulSoup object
     """
     return BeautifulSoup(html_content, 'lxml')
+
+def sanitize_text(text: str) -> str:
+    """
+    Sanitize text for JSON serialization
+    Remove or escape problematic characters
+    
+    Args:
+        text: Input text
+        
+    Returns:
+        Sanitized text safe for JSON
+    """
+    if not text:
+        return text
+    
+    # Remove control characters and fix quotes
+    text = text.replace('\r', ' ').replace('\n', ' ')
+    text = text.replace('\t', ' ')
+    # Replace multiple spaces with single space
+    text = ' '.join(text.split())
+    # Limit length to prevent huge responses
+    if len(text) > 5000:
+        text = text[:5000] + '...'
+    return text

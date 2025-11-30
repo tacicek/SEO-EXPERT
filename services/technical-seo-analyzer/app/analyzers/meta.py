@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from app.config import settings
-from app.utils.fetcher import parse_html
+from app.utils.fetcher import parse_html, sanitize_text
 from app.utils.scorer import calculate_score_from_issues
 
 class MetaAnalyzer:
@@ -58,7 +58,7 @@ class MetaAnalyzer:
                 'issues': ['Missing title tag']
             }
         
-        title_text = title_tag.get_text().strip()
+        title_text = sanitize_text(title_tag.get_text().strip())
         title_length = len(title_text)
         status = 'good'
         issues = []
@@ -123,7 +123,7 @@ class MetaAnalyzer:
                 'issues': ['Missing meta description']
             }
         
-        desc_text = desc_tag.get('content', '').strip()
+        desc_text = sanitize_text(desc_tag.get('content', '').strip())
         desc_length = len(desc_text)
         status = 'good'
         issues = []
@@ -168,7 +168,7 @@ class MetaAnalyzer:
                 'status': 'warning'
             }
         
-        canonical_url = canonical_tag.get('href', '')
+        canonical_url = sanitize_text(canonical_tag.get('href', ''))
         is_self_referencing = canonical_url == self.url or canonical_url == self.url.rstrip('/')
         
         return {
@@ -202,7 +202,7 @@ class MetaAnalyzer:
         
         for tag in self.soup.find_all('meta', attrs={'property': lambda x: x and x.startswith('og:')}):
             property_name = tag.get('property', '')
-            content = tag.get('content', '')
+            content = sanitize_text(tag.get('content', ''))
             og_tags[property_name] = content
         
         return og_tags
@@ -213,7 +213,7 @@ class MetaAnalyzer:
         
         for tag in self.soup.find_all('meta', attrs={'name': lambda x: x and x.startswith('twitter:')}):
             name = tag.get('name', '')
-            content = tag.get('content', '')
+            content = sanitize_text(tag.get('content', ''))
             twitter_tags[name] = content
         
         return twitter_tags
