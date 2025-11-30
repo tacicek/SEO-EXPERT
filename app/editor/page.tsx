@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, CheckCircle2, AlertTriangle, XCircle, Save, Share2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertTriangle, XCircle, Save, Share2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useAnalysisStore } from "@/lib/store/analysis-store";
 import { ContentEditor } from "@/components/editor/ContentEditor";
@@ -14,16 +14,40 @@ import { SuggestionPanel } from "@/components/editor/SuggestionPanel";
 import { EEATReport } from "@/components/reports/EEATReport";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useAuth } from "@/lib/providers/auth-provider";
 
 export default function EditorPage() {
   const router = useRouter();
   const { currentAnalysis, selectedSentence } = useAnalysisStore();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth/login');
+      return;
+    }
+    
     if (!currentAnalysis) {
       router.push('/');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, router, user, loading]);
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
 
   if (!currentAnalysis) {
     return (

@@ -25,7 +25,24 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      router.push('/');
+      
+      // Check if there's a pending analysis
+      const pendingUrl = sessionStorage.getItem('pendingAnalysisUrl');
+      const returnUrl = sessionStorage.getItem('returnUrl');
+      
+      if (pendingUrl) {
+        // Clear session storage
+        sessionStorage.removeItem('pendingAnalysisUrl');
+        sessionStorage.removeItem('returnUrl');
+        
+        // Redirect to home with the URL to analyze
+        router.push(`/?analyzeUrl=${encodeURIComponent(pendingUrl)}`);
+      } else if (returnUrl) {
+        sessionStorage.removeItem('returnUrl');
+        router.push(returnUrl);
+      } else {
+        router.push('/');
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
     } finally {

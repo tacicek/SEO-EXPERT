@@ -5,20 +5,32 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, BarChart3, Globe, Zap, Loader2 } from "lucide-react";
+import { ArrowRight, BarChart3, Globe, Zap, Loader2, Lock } from "lucide-react";
 import { useState } from "react";
 import { useAnalyzeContent } from "@/lib/hooks/use-analysis";
 import { useAnalysisStore } from "@/lib/store/analysis-store";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/providers/auth-provider";
+import Link from "next/link";
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const { mutate: analyzeContent, isPending } = useAnalyzeContent();
   const { setCurrentAnalysis, setIsAnalyzing } = useAnalysisStore();
 
   const handleAnalyze = () => {
     if (!url.trim()) return;
+
+    // Check if user is logged in
+    if (!user) {
+      // Redirect to login with return URL
+      sessionStorage.setItem('returnUrl', '/');
+      sessionStorage.setItem('pendingAnalysisUrl', url.trim());
+      router.push('/auth/login');
+      return;
+    }
 
     setIsAnalyzing(true);
     
@@ -90,6 +102,23 @@ export default function Home() {
               )}
             </Button>
           </div>
+
+          {!authLoading && !user && (
+            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg flex items-center gap-3 max-w-2xl">
+              <Lock className="h-5 w-5 text-blue-600 flex-shrink-0" />
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                Sign in required to analyze content.{' '}
+                <Link href="/auth/login" className="font-medium underline hover:no-underline">
+                  Login
+                </Link>{' '}
+                or{' '}
+                <Link href="/auth/register" className="font-medium underline hover:no-underline">
+                  create an account
+                </Link>{' '}
+                to get started.
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
             <span className="flex items-center gap-1"><Zap className="h-3 w-3" /> Instant Analysis</span>
