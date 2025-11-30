@@ -35,7 +35,7 @@ IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, 
 `;
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-sonnet-20240620',
       max_tokens: 8000,
       temperature: 0.3,
       system: systemPrompt,
@@ -98,7 +98,7 @@ Provide a detailed sentence-level analysis in JSON format matching the sentence_
 `;
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-sonnet-20240620',
       max_tokens: 2000,
       temperature: 0.3,
       system: systemPrompt,
