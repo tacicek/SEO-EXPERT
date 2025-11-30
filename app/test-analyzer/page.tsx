@@ -15,16 +15,31 @@ export default function TestAnalyzerPage() {
     const handleAnalyze = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setResult(null);
 
-        // Simulate analysis for now since the Python service is not connected
-        setTimeout(() => {
-            setLoading(false);
-            setResult({
-                status: 'warning',
-                message: 'The Technical SEO Microservice is currently disconnected.',
-                details: 'This feature requires the Python FastAPI service to be running and connected. We are working on integrating it fully.'
+        try {
+            const res = await fetch('/api/technical-analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
             });
-        }, 1500);
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Analysis failed');
+            }
+
+            setResult(data);
+        } catch (error: any) {
+            setResult({
+                status: 'error',
+                message: 'Analysis Failed',
+                details: error.message
+            });
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -68,12 +83,12 @@ export default function TestAnalyzerPage() {
                     </CardContent>
                 </Card>
 
-                {result && (
-                    <Card className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/10">
+                {result && result.status === 'error' && (
+                    <Card className="border-red-500/50 bg-red-50 dark:bg-red-950/10">
                         <CardHeader>
-                            <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-500">
+                            <div className="flex items-center gap-2 text-red-600 dark:text-red-500">
                                 <AlertTriangle className="h-5 w-5" />
-                                <CardTitle className="text-lg">Service Status</CardTitle>
+                                <CardTitle className="text-lg">Error</CardTitle>
                             </div>
                         </CardHeader>
                         <CardContent>
@@ -81,6 +96,72 @@ export default function TestAnalyzerPage() {
                             <p className="text-sm text-muted-foreground mt-2">{result.details}</p>
                         </CardContent>
                     </Card>
+                )}
+
+                {result && !result.status && (
+                    <div className="space-y-6">
+                        {/* Score Card */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Overall Score</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-4xl font-bold text-primary">{result.score.overall}/100</div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Issues List */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Issues Found</CardTitle>
+                                <CardDescription>Prioritized list of technical issues</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                {result.issues.length === 0 ? (
+                                    <p className="text-green-600">No issues found! Great job.</p>
+                                ) : (
+                                    <ul className="space-y-3">
+                                        {result.issues.map((issue: any, index: number) => (
+                                            <li key={index} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/50">
+                                                {issue.impact === 'high' ? (
+                                                    <div className="h-2 w-2 mt-2 rounded-full bg-red-500 shrink-0" />
+                                                ) : issue.impact === 'medium' ? (
+                                                    <div className="h-2 w-2 mt-2 rounded-full bg-orange-500 shrink-0" />
+                                                ) : (
+                                                    <div className="h-2 w-2 mt-2 rounded-full bg-blue-500 shrink-0" />
+                                                )}
+                                                <div>
+                                                    <p className="font-medium">{issue.message}</p>
+                                                    <span className="text-xs uppercase text-muted-foreground">{issue.impact} impact</span>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Meta Details */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Meta Tags</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-3 border rounded-lg">
+                                        <div className="text-sm text-muted-foreground mb-1">Title</div>
+                                        <div className="font-medium break-words">{result.meta.title.value || <span className="text-red-500">Missing</span>}</div>
+                                        <div className="text-xs text-muted-foreground mt-1">{result.meta.title.length} chars</div>
+                                    </div>
+                                    <div className="p-3 border rounded-lg">
+                                        <div className="text-sm text-muted-foreground mb-1">Description</div>
+                                        <div className="font-medium break-words">{result.meta.description.value || <span className="text-red-500">Missing</span>}</div>
+                                        <div className="text-xs text-muted-foreground mt-1">{result.meta.description.length} chars</div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
                 )}
             </div>
         </MainLayout>
