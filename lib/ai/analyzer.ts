@@ -21,6 +21,20 @@ interface AIAnalysisResponse {
   statistics: AnalysisStatistics;
 }
 
+function extractAndCleanJson(responseText: string): string {
+  // Remove fences if model wrapped output
+  let cleaned = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  
+  // If there is leading/excess text, cut to first { ... last }
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    cleaned = cleaned.slice(start, end + 1).trim();
+  }
+
+  return cleaned;
+}
+
 export async function analyzeContent(content: string, title?: string): Promise<AnalysisResult> {
   try {
     const systemPrompt = getSystemPrompt();
@@ -47,16 +61,11 @@ IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, 
       ],
     });
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-    
-    // Clean response - remove markdown code blocks if present
-    let cleanedResponse = responseText.trim();
-    if (cleanedResponse.startsWith('```json')) {
-      cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    } else if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/```\n?/g, '');
-    }
-    
+    const responseText = message.content
+      .map(part => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+
+    const cleanedResponse = extractAndCleanJson(responseText);
     const aiResponse: AIAnalysisResponse = JSON.parse(cleanedResponse);
 
     // Create the full analysis result
@@ -110,15 +119,10 @@ Provide a detailed sentence-level analysis in JSON format matching the sentence_
       ],
     });
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-    let cleanedResponse = responseText.trim();
-    
-    if (cleanedResponse.startsWith('```json')) {
-      cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    } else if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/```\n?/g, '');
-    }
-    
+    const responseText = message.content
+      .map(part => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    const cleanedResponse = extractAndCleanJson(responseText);
     const sentenceAnalysis: SentenceAnalysis = JSON.parse(cleanedResponse);
     
     return sentenceAnalysis;
