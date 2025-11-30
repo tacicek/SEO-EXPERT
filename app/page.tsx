@@ -127,6 +127,58 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Technical SEO Section */}
+        <section className="py-8">
+          <Card className="bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 border-primary/20">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl mb-2">🔧 Technical SEO Analyzer</CardTitle>
+                  <CardDescription className="text-base">
+                    Comprehensive on-page SEO analysis for any URL
+                  </CardDescription>
+                </div>
+                <Link href="/test-analyzer">
+                  <Button size="lg" variant="default">
+                    Try Analyzer <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3 mt-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-lg">📊</span>
+                  </div>
+                  <div>
+                    <div className="font-medium mb-1">Meta Tags Analysis</div>
+                    <div className="text-sm text-muted-foreground">Title, description, OG tags, canonical</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-lg">🎯</span>
+                  </div>
+                  <div>
+                    <div className="font-medium mb-1">Content Quality</div>
+                    <div className="text-sm text-muted-foreground">Headings, images, schema markup</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-lg">⚡</span>
+                  </div>
+                  <div>
+                    <div className="font-medium mb-1">Performance</div>
+                    <div className="text-sm text-muted-foreground">URL structure, mobile-friendly</div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
         {/* Features Section */}
         <section>
           <h2 className="text-2xl font-semibold tracking-tight mb-4">How It Works</h2>
