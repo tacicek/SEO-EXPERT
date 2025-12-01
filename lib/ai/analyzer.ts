@@ -23,7 +23,10 @@ interface AIAnalysisResponse {
 
 function extractAndCleanJson(responseText: string): string {
   // Remove fences if model wrapped output
-  let cleaned = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  let cleaned = responseText.trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
   
   // If there is leading/excess text, cut to first { ... last }
   const start = cleaned.indexOf('{');
@@ -32,64 +35,196 @@ function extractAndCleanJson(responseText: string): string {
     cleaned = cleaned.slice(start, end + 1).trim();
   }
 
-  // Fix common JSON issues from AI responses
-  // 1. Remove control characters that break JSON
-  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (char) => {
-    if (char === '\n') return '\\n';
-    if (char === '\r') return '\\r';
-    if (char === '\t') return '\\t';
-    return '';
-  });
-
-  // 2. Fix unescaped quotes inside string values (common AI mistake)
-  // This regex looks for quotes inside strings that aren't escaped
-  cleaned = cleaned.replace(/"([^"]*?)(?<!\\)"([^"]*?)"/g, (match, p1, p2) => {
-    // If p2 contains typical JSON structure characters, it's likely a real quote boundary
-    if (p2.match(/^[\s]*[:,\[\]{}]/)) {
-      return match;
-    }
-    // Otherwise, escape the middle quote
-    return `"${p1}\\"${p2}"`;
-  });
-
   return cleaned;
 }
 
+function repairJson(jsonString: string): string {
+  let repaired = jsonString;
+  
+  // Step 1: Fix control characters
+  repaired = repaired.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  
+  // Step 2: Fix newlines and tabs inside strings by escaping them properly
+  // This is a more sophisticated approach that processes character by character
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  
+  for (let i = 0; i < repaired.length; i++) {
+    const char = repaired[i];
+    const prevChar = i > 0 ? repaired[i - 1] : '';
+    
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escaped = true;
+      result += char;
+      continue;
+    }
+    
+    if (char === '"' && !escaped) {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+    
+    if (inString) {
+      // Escape problematic characters inside strings
+      if (char === '\n') {
+        result += '\\n';
+      } else if (char === '\r') {
+        result += '\\r';
+      } else if (char === '\t') {
+        result += '\\t';
+      } else {
+        result += char;
+      }
+    } else {
+      result += char;
+    }
+  }
+  
+  repaired = result;
+  
+  // Step 3: Fix trailing commas before } or ]
+  repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+  
+  // Step 4: Fix missing commas between array elements
+  // Match closing brace/bracket followed by opening brace/bracket without comma
+  repaired = repaired.replace(/}(\s*)(?=")/g, '},$1');
+  repaired = repaired.replace(/}(\s*){/g, '},$1{');
+  repaired = repaired.replace(/](\s*)\[/g, '],$1[');
+  repaired = repaired.replace(/"(\s*)"(?=[a-zA-Z_])/g, '",$1"');
+  
+  // Step 5: Fix number followed by string without comma
+  repaired = repaired.replace(/(\d)(\s*)"(?=[a-zA-Z_])/g, '$1,$2"');
+  
+  // Step 6: Fix string ending followed by string starting without comma
+  repaired = repaired.replace(/"(\s+)"/g, '", "');
+  
+  // Step 7: Ensure arrays are properly closed - find unclosed arrays
+  const openBrackets = (repaired.match(/\[/g) || []).length;
+  const closeBrackets = (repaired.match(/\]/g) || []).length;
+  if (openBrackets > closeBrackets) {
+    // Add missing closing brackets
+    for (let i = 0; i < openBrackets - closeBrackets; i++) {
+      repaired += ']';
+    }
+  }
+  
+  // Step 8: Ensure objects are properly closed
+  const openBraces = (repaired.match(/{/g) || []).length;
+  const closeBraces = (repaired.match(/}/g) || []).length;
+  if (openBraces > closeBraces) {
+    for (let i = 0; i < openBraces - closeBraces; i++) {
+      repaired += '}';
+    }
+  }
+  
+  return repaired;
+}
+
 function safeJsonParse<T>(jsonString: string): T {
+  // First attempt: direct parse
   try {
     return JSON.parse(jsonString);
   } catch (firstError) {
     console.error('Initial JSON parse failed, attempting repairs...');
-    console.error('Error position:', (firstError as SyntaxError).message);
     
-    // Log a portion around the error position for debugging
+    // Log error details for debugging
     const posMatch = (firstError as SyntaxError).message.match(/position (\d+)/);
     if (posMatch) {
       const pos = parseInt(posMatch[1], 10);
-      console.error('Context around error:', jsonString.substring(Math.max(0, pos - 50), pos + 50));
+      console.error('Error at position:', pos);
+      console.error('Context:', jsonString.substring(Math.max(0, pos - 100), Math.min(jsonString.length, pos + 100)));
     }
 
-    // Attempt to fix common issues
-    let repaired = jsonString;
-    
-    // Fix trailing commas before } or ]
-    repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
-    
-    // Fix missing commas between array elements or object properties
-    repaired = repaired.replace(/}(\s*){/g, '},$1{');
-    repaired = repaired.replace(/](\s*)\[/g, '],$1[');
-    repaired = repaired.replace(/"(\s*)"/g, '",$1"');
-    
-    // Try parsing again
+    // Second attempt: repair and parse
     try {
+      const repaired = repairJson(jsonString);
       return JSON.parse(repaired);
     } catch (secondError) {
-      console.error('JSON repair failed:', secondError);
-      console.error('Raw response (first 1000 chars):', jsonString.substring(0, 1000));
-      console.error('Raw response (last 500 chars):', jsonString.substring(jsonString.length - 500));
-      throw new Error(`JSON parse error: ${(firstError as Error).message}. AI response may be malformed.`);
+      console.error('Standard repair failed, trying aggressive repair...');
+      
+      // Third attempt: more aggressive repair
+      try {
+        let aggressive = repairJson(jsonString);
+        
+        // Remove any text after the last valid closing brace
+        const lastBrace = aggressive.lastIndexOf('}');
+        if (lastBrace !== -1) {
+          aggressive = aggressive.substring(0, lastBrace + 1);
+        }
+        
+        // Try to balance brackets/braces more carefully
+        aggressive = balanceJsonStructure(aggressive);
+        
+        return JSON.parse(aggressive);
+      } catch (thirdError) {
+        console.error('All JSON repair attempts failed');
+        console.error('First 2000 chars:', jsonString.substring(0, 2000));
+        console.error('Last 1000 chars:', jsonString.substring(Math.max(0, jsonString.length - 1000)));
+        throw new Error(`JSON parse error: ${(firstError as Error).message}`);
+      }
     }
   }
+}
+
+function balanceJsonStructure(json: string): string {
+  // Count and balance brackets/braces
+  let result = json;
+  let stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  
+  for (let i = 0; i < result.length; i++) {
+    const char = result[i];
+    
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{' || char === '[') {
+        stack.push(char);
+      } else if (char === '}') {
+        if (stack.length > 0 && stack[stack.length - 1] === '{') {
+          stack.pop();
+        }
+      } else if (char === ']') {
+        if (stack.length > 0 && stack[stack.length - 1] === '[') {
+          stack.pop();
+        }
+      }
+    }
+  }
+  
+  // Close unclosed structures
+  while (stack.length > 0) {
+    const open = stack.pop();
+    if (open === '{') {
+      result += '}';
+    } else if (open === '[') {
+      result += ']';
+    }
+  }
+  
+  return result;
 }
 
 export async function analyzeContent(content: string, title?: string): Promise<AnalysisResult> {
@@ -97,12 +232,18 @@ export async function analyzeContent(content: string, title?: string): Promise<A
     const systemPrompt = getSystemPrompt();
     
     const userPrompt = `
-Analyze the following content comprehensively. Provide a detailed analysis following the exact JSON structure specified in your system prompt.
+Analyze the following content. Provide analysis following the JSON structure in your system prompt.
 
 ${title ? `Title: ${title}\n\n` : ''}Content:
 ${content}
 
-IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, or additional text. The response must be pure JSON that can be parsed directly.
+CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
+1. Return ONLY valid JSON - no markdown, no code blocks, no explanations
+2. Limit sentence_analysis array to maximum 30 sentences (prioritize red and orange)
+3. Keep all string values concise (max 200 characters each)
+4. Ensure all strings are properly escaped (quotes, newlines, special chars)
+5. Do not include any text before { or after }
+6. Double-check JSON syntax before responding
 `;
 
     const message = await anthropic.messages.create({
