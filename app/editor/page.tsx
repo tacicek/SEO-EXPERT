@@ -9,8 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   ArrowLeft, CheckCircle2, AlertTriangle, XCircle, Save, Share2, 
-  Loader2, FileText, Link2, ExternalLink, Hash, Type, BarChart3,
-  Heading1, Heading2, Heading3, List, Quote
+  Loader2, FileText, Link2, ExternalLink, Hash, Type, BarChart3
 } from "lucide-react";
 import Link from "next/link";
 import { useAnalysisStore } from "@/lib/store/analysis-store";
@@ -76,7 +75,6 @@ export default function EditorPage() {
     htmlContent,
     rawMainHtml,
     contentElements,
-    headings,
     content_summary, 
     sentence_analysis, 
     eeat_scores, 
@@ -106,20 +104,6 @@ export default function EditorPage() {
     if (score >= 60) return 'bg-amber-500';
     return 'bg-rose-500';
   };
-
-  // Count headings
-  const totalHeadings = headings ? 
-    (headings.h1?.length || 0) + 
-    (headings.h2?.length || 0) + 
-    (headings.h3?.length || 0) + 
-    (headings.h4?.length || 0) + 
-    (headings.h5?.length || 0) + 
-    (headings.h6?.length || 0) : 0;
-
-  // Count content element types
-  const listCount = contentElements?.filter(e => e.type === 'list').length || 0;
-  const paragraphCount = contentElements?.filter(e => e.type === 'paragraph').length || 0;
-  const blockquoteCount = contentElements?.filter(e => e.type === 'blockquote').length || 0;
 
   return (
     <MainLayout>
@@ -156,8 +140,8 @@ export default function EditorPage() {
                 <div className="text-xs text-muted-foreground">Words</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">{contentElements?.length || 0}</div>
-                <div className="text-xs text-muted-foreground">Blocks</div>
+                <div className="text-2xl font-bold">{statistics.total_sentences}</div>
+                <div className="text-xs text-muted-foreground">Sentences</div>
               </div>
             </div>
             <Button variant="outline" size="sm">
@@ -171,14 +155,10 @@ export default function EditorPage() {
 
         {/* Main Content Area */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-          <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-4 max-w-lg">
             <TabsTrigger value="content" className="gap-2">
               <FileText className="h-4 w-4" />
               Content
-            </TabsTrigger>
-            <TabsTrigger value="structure" className="gap-2">
-              <List className="h-4 w-4" />
-              Structure
             </TabsTrigger>
             <TabsTrigger value="eeat" className="gap-2">
               <BarChart3 className="h-4 w-4" />
@@ -350,185 +330,6 @@ export default function EditorPage() {
             </div>
           </TabsContent>
 
-          {/* Structure Tab - Shows headings and content structure */}
-          <TabsContent value="structure" className="mt-4">
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Headings Overview */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Heading1 className="h-5 w-5 text-purple-500" />
-                    Heading Structure
-                  </CardTitle>
-                  <CardDescription>
-                    All headings found in the content ({totalHeadings} total)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px]">
-                    <div className="space-y-4">
-                      {headings?.h1 && headings.h1.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge className="bg-purple-600">H1</Badge>
-                            <span className="text-sm text-muted-foreground">{headings.h1.length} found</span>
-                          </div>
-                          <ul className="space-y-1">
-                            {headings.h1.map((h, i) => (
-                              <li key={i} className="text-lg font-bold p-2 bg-purple-50 dark:bg-purple-950/20 rounded">
-                                {h}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {headings?.h2 && headings.h2.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge className="bg-indigo-600">H2</Badge>
-                            <span className="text-sm text-muted-foreground">{headings.h2.length} found</span>
-                          </div>
-                          <ul className="space-y-1">
-                            {headings.h2.map((h, i) => (
-                              <li key={i} className="text-base font-semibold p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded pl-4">
-                                {h}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {headings?.h3 && headings.h3.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge className="bg-blue-600">H3</Badge>
-                            <span className="text-sm text-muted-foreground">{headings.h3.length} found</span>
-                          </div>
-                          <ul className="space-y-1">
-                            {headings.h3.map((h, i) => (
-                              <li key={i} className="text-sm font-medium p-2 bg-blue-50 dark:bg-blue-950/20 rounded pl-6">
-                                {h}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {headings?.h4 && headings.h4.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge className="bg-cyan-600">H4</Badge>
-                            <span className="text-sm text-muted-foreground">{headings.h4.length} found</span>
-                          </div>
-                          <ul className="space-y-1">
-                            {headings.h4.map((h, i) => (
-                              <li key={i} className="text-sm p-2 bg-cyan-50 dark:bg-cyan-950/20 rounded pl-8">
-                                {h}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {totalHeadings === 0 && (
-                        <p className="text-muted-foreground text-center py-8">
-                          No headings found in the content
-                        </p>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-
-              {/* Content Structure Overview */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <List className="h-5 w-5 text-blue-500" />
-                    Content Blocks
-                  </CardTitle>
-                  <CardDescription>
-                    Content structure breakdown ({contentElements?.length || 0} blocks)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* Block type stats */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Heading2 className="h-4 w-4 text-purple-600" />
-                          <span className="text-sm font-medium">Headings</span>
-                        </div>
-                        <div className="text-2xl font-bold text-purple-600">{totalHeadings}</div>
-                      </div>
-                      <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-950/20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Type className="h-4 w-4 text-gray-600" />
-                          <span className="text-sm font-medium">Paragraphs</span>
-                        </div>
-                        <div className="text-2xl font-bold text-gray-600">{paragraphCount}</div>
-                      </div>
-                      <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <List className="h-4 w-4 text-blue-600" />
-                          <span className="text-sm font-medium">Lists</span>
-                        </div>
-                        <div className="text-2xl font-bold text-blue-600">{listCount}</div>
-                      </div>
-                      <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Quote className="h-4 w-4 text-amber-600" />
-                          <span className="text-sm font-medium">Blockquotes</span>
-                        </div>
-                        <div className="text-2xl font-bold text-amber-600">{blockquoteCount}</div>
-                      </div>
-                    </div>
-
-                    {/* Content elements list */}
-                    <div className="border-t pt-4">
-                      <h4 className="text-sm font-medium mb-3">Content Flow</h4>
-                      <ScrollArea className="h-[250px]">
-                        <div className="space-y-2">
-                          {contentElements?.map((element, index) => (
-                            <div 
-                              key={index}
-                              className={cn(
-                                'flex items-center gap-2 p-2 rounded text-sm',
-                                element.type === 'heading' && 'bg-purple-50 dark:bg-purple-950/20',
-                                element.type === 'paragraph' && 'bg-gray-50 dark:bg-gray-950/20',
-                                element.type === 'list' && 'bg-blue-50 dark:bg-blue-950/20',
-                                element.type === 'blockquote' && 'bg-amber-50 dark:bg-amber-950/20'
-                              )}
-                            >
-                              <Badge variant="outline" className="text-xs">
-                                {element.tag.toUpperCase()}
-                              </Badge>
-                              <span className="truncate flex-1">
-                                {element.text.substring(0, 60)}{element.text.length > 60 ? '...' : ''}
-                              </span>
-                              {element.children && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {element.children.length} items
-                                </Badge>
-                              )}
-                            </div>
-                          ))}
-                          {(!contentElements || contentElements.length === 0) && (
-                            <p className="text-muted-foreground text-center py-4">
-                              No content blocks found
-                            </p>
-                          )}
-                        </div>
-                      </ScrollArea>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
           {/* E-E-A-T Tab */}
           <TabsContent value="eeat" className="mt-4">
             <EEATReport scores={eeat_scores} />
@@ -642,13 +443,6 @@ export default function EditorPage() {
                       <span>Sentences</span>
                     </div>
                     <span className="text-xl font-bold">{statistics.total_sentences}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <List className="h-4 w-4 text-muted-foreground" />
-                      <span>Content Blocks</span>
-                    </div>
-                    <span className="text-xl font-bold">{contentElements?.length || 0}</span>
                   </div>
                   {statistics.readability_score !== undefined && (
                     <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
