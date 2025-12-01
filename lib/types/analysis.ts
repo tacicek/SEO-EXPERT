@@ -61,6 +61,7 @@ export interface AnalysisStatistics {
   red_count: number;
   green_percentage: number;
   word_count: number;
+  character_count?: number;
   readability_score?: number;
 }
 
@@ -80,16 +81,24 @@ export interface TopicalAuthorityScore {
   content_gaps: string[];
 }
 
+export interface ContentLinkInfo {
+  href: string;
+  text: string;
+  type: 'internal' | 'external';
+}
+
 export interface AnalysisResult {
   id: string;
   url?: string;
   title: string;
+  htmlContent?: string; // Preserved HTML with formatting
   content_summary: ContentSummary;
   sentence_analysis: SentenceAnalysis[];
   eeat_scores: EEATScores;
   priority_actions: PriorityAction[];
   statistics: AnalysisStatistics;
   link_analysis?: LinkAnalysis;
+  links?: ContentLinkInfo[]; // All links in content
   topical_authority?: TopicalAuthorityScore;
   created_at: string;
   updated_at: string;

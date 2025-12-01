@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeContent } from '@/lib/ai/analyzer';
-import { fetchAndParseURL } from '@/lib/scraper/content-fetcher';
-import type { AnalysisRequest, AnalysisResponse } from '@/lib/types/analysis';
+import { fetchAndParseURL, type ScrapedContent } from '@/lib/scraper/content-fetcher';
+import type { AnalysisRequest, AnalysisResponse, ContentLinkInfo } from '@/lib/types/analysis';
 
 export async function POST(request: NextRequest) {
   try {
     const body: AnalysisRequest = await request.json();
-    const { url, content, title, topic } = body;
+    const { url, content, title } = body;
 
     // Validate input
     if (!url && !content) {
@@ -21,13 +21,14 @@ export async function POST(request: NextRequest) {
 
     let textToAnalyze = content || '';
     let titleToUse = title || '';
+    let scrapedData: ScrapedContent | null = null;
 
-    // If URL is provided, fetch content
+    // If URL is provided, fetch content with HTML preservation
     if (url) {
       try {
-        const scrapedContent = await fetchAndParseURL(url);
-        textToAnalyze = scrapedContent.content;
-        titleToUse = title || scrapedContent.title;
+        scrapedData = await fetchAndParseURL(url);
+        textToAnalyze = scrapedData.content;
+        titleToUse = title || scrapedData.title;
 
         // Validate content length
         if (textToAnalyze.length < 100) {
@@ -59,10 +60,62 @@ export async function POST(request: NextRequest) {
     // Perform AI analysis
     const analysisResult = await analyzeContent(textToAnalyze, titleToUse);
 
-    // Add URL to result if provided
+    // Add URL and scraped data to result
     if (url) {
       analysisResult.url = url;
     }
+
+    // Add HTML content and links if we scraped from URL
+    if (scrapedData) {
+      analysisResult.htmlContent = scrapedData.htmlContent;
+      
+      // Convert links to the expected format
+      const links: ContentLinkInfo[] = scrapedData.links.items.map(link => ({
+        href: link.href,
+        text: link.text,
+        type: link.type,
+      }));
+      analysisResult.links = links;
+
+      // Update statistics with accurate counts from scraper
+      analysisResult.statistics = {
+        ...analysisResult.statistics,
+        word_count: scrapedData.wordCount,
+        character_count: scrapedData.characterCount,
+        total_sentences: scrapedData.sentenceCount > 0 ? scrapedData.sentenceCount : analysisResult.statistics.total_sentences,
+      };
+
+      // Update link analysis
+      analysisResult.link_analysis = {
+        internal_links: scrapedData.links.internal,
+        external_links: scrapedData.links.external,
+        broken_links: 0,
+        nofollow_count: 0,
+        unique_domains: new Set(links.filter(l => l.type === 'external').map(l => {
+          try {
+            return new URL(l.href).hostname;
+          } catch {
+            return '';
+          }
+        })).size,
+        anchor_text_diversity: new Set(links.map(l => l.text)).size / Math.max(links.length, 1),
+      };
+    }
+
+    // Recalculate sentence statistics
+    const greenCount = analysisResult.sentence_analysis.filter(s => s.score === 'green').length;
+    const orangeCount = analysisResult.sentence_analysis.filter(s => s.score === 'orange').length;
+    const redCount = analysisResult.sentence_analysis.filter(s => s.score === 'red').length;
+    const totalSentences = analysisResult.sentence_analysis.length;
+
+    analysisResult.statistics = {
+      ...analysisResult.statistics,
+      total_sentences: totalSentences,
+      green_count: greenCount,
+      orange_count: orangeCount,
+      red_count: redCount,
+      green_percentage: totalSentences > 0 ? Math.round((greenCount / totalSentences) * 100) : 0,
+    };
 
     return NextResponse.json(
       {
