@@ -32,7 +32,64 @@ function extractAndCleanJson(responseText: string): string {
     cleaned = cleaned.slice(start, end + 1).trim();
   }
 
+  // Fix common JSON issues from AI responses
+  // 1. Remove control characters that break JSON
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (char) => {
+    if (char === '\n') return '\\n';
+    if (char === '\r') return '\\r';
+    if (char === '\t') return '\\t';
+    return '';
+  });
+
+  // 2. Fix unescaped quotes inside string values (common AI mistake)
+  // This regex looks for quotes inside strings that aren't escaped
+  cleaned = cleaned.replace(/"([^"]*?)(?<!\\)"([^"]*?)"/g, (match, p1, p2) => {
+    // If p2 contains typical JSON structure characters, it's likely a real quote boundary
+    if (p2.match(/^[\s]*[:,\[\]{}]/)) {
+      return match;
+    }
+    // Otherwise, escape the middle quote
+    return `"${p1}\\"${p2}"`;
+  });
+
   return cleaned;
+}
+
+function safeJsonParse<T>(jsonString: string): T {
+  try {
+    return JSON.parse(jsonString);
+  } catch (firstError) {
+    console.error('Initial JSON parse failed, attempting repairs...');
+    console.error('Error position:', (firstError as SyntaxError).message);
+    
+    // Log a portion around the error position for debugging
+    const posMatch = (firstError as SyntaxError).message.match(/position (\d+)/);
+    if (posMatch) {
+      const pos = parseInt(posMatch[1], 10);
+      console.error('Context around error:', jsonString.substring(Math.max(0, pos - 50), pos + 50));
+    }
+
+    // Attempt to fix common issues
+    let repaired = jsonString;
+    
+    // Fix trailing commas before } or ]
+    repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Fix missing commas between array elements or object properties
+    repaired = repaired.replace(/}(\s*){/g, '},$1{');
+    repaired = repaired.replace(/](\s*)\[/g, '],$1[');
+    repaired = repaired.replace(/"(\s*)"/g, '",$1"');
+    
+    // Try parsing again
+    try {
+      return JSON.parse(repaired);
+    } catch (secondError) {
+      console.error('JSON repair failed:', secondError);
+      console.error('Raw response (first 1000 chars):', jsonString.substring(0, 1000));
+      console.error('Raw response (last 500 chars):', jsonString.substring(jsonString.length - 500));
+      throw new Error(`JSON parse error: ${(firstError as Error).message}. AI response may be malformed.`);
+    }
+  }
 }
 
 export async function analyzeContent(content: string, title?: string): Promise<AnalysisResult> {
@@ -66,7 +123,7 @@ IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, 
       .join('\n');
 
     const cleanedResponse = extractAndCleanJson(responseText);
-    const aiResponse: AIAnalysisResponse = JSON.parse(cleanedResponse);
+    const aiResponse: AIAnalysisResponse = safeJsonParse<AIAnalysisResponse>(cleanedResponse);
 
     // Create the full analysis result
     const analysisResult: AnalysisResult = {
@@ -123,7 +180,7 @@ Provide a detailed sentence-level analysis in JSON format matching the sentence_
       .map(part => (part.type === 'text' ? part.text : ''))
       .join('\n');
     const cleanedResponse = extractAndCleanJson(responseText);
-    const sentenceAnalysis: SentenceAnalysis = JSON.parse(cleanedResponse);
+    const sentenceAnalysis: SentenceAnalysis = safeJsonParse<SentenceAnalysis>(cleanedResponse);
     
     return sentenceAnalysis;
   } catch (error) {
