@@ -9,9 +9,14 @@ import type {
 } from '@/lib/types/analysis';
 import { getSystemPrompt } from './prompts';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
+// Initialize Anthropic client only if API key exists
+const getAnthropicClient = () => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY is not configured. Please set it in your environment variables.');
+  }
+  return new Anthropic({ apiKey });
+};
 
 interface AIAnalysisResponse {
   content_summary: ContentSummary;
@@ -19,6 +24,101 @@ interface AIAnalysisResponse {
   eeat_scores: EEATScores;
   priority_actions: PriorityAction[];
   statistics: AnalysisStatistics;
+}
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function callAnthropicWithRetry(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number = 8000,
+  retries: number = MAX_RETRIES
+): Promise<string> {
+  const anthropic = getAnthropicClient();
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`Anthropic API call attempt ${attempt}/${retries}...`);
+      
+      const message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: maxTokens,
+        temperature: 0.3,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: userPrompt,
+          },
+        ],
+      });
+
+      const responseText = message.content
+        .map(part => (part.type === 'text' ? part.text : ''))
+        .join('\n');
+
+      if (!responseText || responseText.trim().length === 0) {
+        throw new Error('Empty response from AI');
+      }
+
+      return responseText;
+    } catch (error: any) {
+      lastError = error;
+      console.error(`Attempt ${attempt} failed:`, error.message);
+
+      // Check if it's a retryable error
+      const isRetryable = 
+        error.status === 429 || // Rate limit
+        error.status === 500 || // Server error
+        error.status === 502 || // Bad Gateway
+        error.status === 503 || // Service unavailable
+        error.status === 504 || // Gateway timeout
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('socket hang up') ||
+        error.message?.includes('network');
+
+      if (isRetryable && attempt < retries) {
+        const delay = RETRY_DELAY_MS * attempt; // Exponential backoff
+        console.log(`Retrying in ${delay}ms...`);
+        await sleep(delay);
+      } else if (!isRetryable) {
+        // Don't retry non-retryable errors
+        break;
+      }
+    }
+  }
+
+  // If all retries failed, throw a descriptive error
+  if (lastError) {
+    const errorMessage = lastError.message || 'Unknown error';
+    const errorStatus = (lastError as any).status;
+    
+    // Provide user-friendly error messages
+    if (errorMessage.includes('Bad Gateway') || errorStatus === 502) {
+      throw new Error('AI service is temporarily unavailable. Please try again in a few moments.');
+    }
+    if (errorMessage.includes('rate limit') || errorStatus === 429) {
+      throw new Error('Too many requests. Please wait a moment and try again.');
+    }
+    if (errorMessage.includes('ANTHROPIC_API_KEY') || errorStatus === 401) {
+      throw new Error('AI service authentication failed. Please contact support.');
+    }
+    if (errorStatus === 500 || errorStatus === 503) {
+      throw new Error('AI service is experiencing issues. Please try again later.');
+    }
+    
+    throw new Error(`AI analysis failed: ${errorMessage}`);
+  }
+
+  throw new Error('AI analysis failed after multiple attempts. Please try again.');
 }
 
 function extractAndCleanJson(responseText: string): string {
@@ -52,7 +152,6 @@ function repairJson(jsonString: string): string {
   
   for (let i = 0; i < repaired.length; i++) {
     const char = repaired[i];
-    const prevChar = i > 0 ? repaired[i - 1] : '';
     
     if (escaped) {
       result += char;
@@ -168,7 +267,7 @@ function safeJsonParse<T>(jsonString: string): T {
         console.error('All JSON repair attempts failed');
         console.error('First 2000 chars:', jsonString.substring(0, 2000));
         console.error('Last 1000 chars:', jsonString.substring(Math.max(0, jsonString.length - 1000)));
-        throw new Error(`JSON parse error: ${(firstError as Error).message}`);
+        throw new Error(`Invalid response format from AI. Please try again.`);
       }
     }
   }
@@ -228,6 +327,11 @@ function balanceJsonStructure(json: string): string {
 }
 
 export async function analyzeContent(content: string, title?: string): Promise<AnalysisResult> {
+  // Validate inputs
+  if (!content || content.trim().length < 50) {
+    throw new Error('Content is too short to analyze. Please provide at least 50 characters.');
+  }
+
   try {
     const systemPrompt = getSystemPrompt();
     
@@ -246,25 +350,14 @@ CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
 6. Double-check JSON syntax before responding
 `;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 8000,
-      temperature: 0.3,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userPrompt,
-        },
-      ],
-    });
-
-    const responseText = message.content
-      .map(part => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-
+    const responseText = await callAnthropicWithRetry(systemPrompt, userPrompt, 8000);
     const cleanedResponse = extractAndCleanJson(responseText);
     const aiResponse: AIAnalysisResponse = safeJsonParse<AIAnalysisResponse>(cleanedResponse);
+
+    // Validate AI response structure
+    if (!aiResponse.content_summary || !aiResponse.sentence_analysis || !aiResponse.eeat_scores) {
+      throw new Error('AI returned incomplete analysis. Please try again.');
+    }
 
     // Create the full analysis result
     const analysisResult: AnalysisResult = {
@@ -273,16 +366,35 @@ CRITICAL INSTRUCTIONS FOR JSON OUTPUT:
       content_summary: aiResponse.content_summary,
       sentence_analysis: aiResponse.sentence_analysis,
       eeat_scores: aiResponse.eeat_scores,
-      priority_actions: aiResponse.priority_actions,
-      statistics: aiResponse.statistics,
+      priority_actions: aiResponse.priority_actions || [],
+      statistics: aiResponse.statistics || {
+        total_sentences: aiResponse.sentence_analysis.length,
+        green_count: aiResponse.sentence_analysis.filter(s => s.score === 'green').length,
+        orange_count: aiResponse.sentence_analysis.filter(s => s.score === 'orange').length,
+        red_count: aiResponse.sentence_analysis.filter(s => s.score === 'red').length,
+        green_percentage: 0,
+        word_count: content.split(/\s+/).length,
+      },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
+    // Calculate green percentage if not provided
+    if (analysisResult.statistics.green_percentage === 0 && analysisResult.statistics.total_sentences > 0) {
+      analysisResult.statistics.green_percentage = Math.round(
+        (analysisResult.statistics.green_count / analysisResult.statistics.total_sentences) * 100
+      );
+    }
+
     return analysisResult;
   } catch (error) {
     console.error('AI Analysis Error:', error);
-    throw new Error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    
+    // Re-throw with user-friendly message
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Analysis failed. Please try again.');
   }
 }
 
@@ -290,6 +402,10 @@ export async function analyzeSentence(
   sentence: string,
   context: { previous?: string; next?: string; topic?: string }
 ): Promise<SentenceAnalysis> {
+  if (!sentence || sentence.trim().length < 5) {
+    throw new Error('Sentence is too short to analyze.');
+  }
+
   try {
     const systemPrompt = getSystemPrompt();
     
@@ -304,29 +420,18 @@ Next sentence: ${context.next || 'N/A'}
 Provide a detailed sentence-level analysis in JSON format matching the sentence_analysis schema from your system prompt. Return ONLY the JSON object for this single sentence, without array brackets.
 `;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 2000,
-      temperature: 0.3,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userPrompt,
-        },
-      ],
-    });
-
-    const responseText = message.content
-      .map(part => (part.type === 'text' ? part.text : ''))
-      .join('\n');
+    const responseText = await callAnthropicWithRetry(systemPrompt, userPrompt, 2000);
     const cleanedResponse = extractAndCleanJson(responseText);
     const sentenceAnalysis: SentenceAnalysis = safeJsonParse<SentenceAnalysis>(cleanedResponse);
     
     return sentenceAnalysis;
   } catch (error) {
     console.error('Sentence Analysis Error:', error);
-    throw new Error(`Sentence analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Sentence analysis failed. Please try again.');
   }
 }
 
