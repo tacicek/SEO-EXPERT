@@ -10,17 +10,20 @@ export interface ContentLink {
 }
 
 export interface ContentElement {
-  type: 'paragraph' | 'heading' | 'list' | 'blockquote';
+  type: 'paragraph' | 'heading' | 'list' | 'blockquote' | 'list-item';
   tag: string;
+  level?: number; // For headings (1-6)
   html: string;
   text: string;
+  children?: ContentElement[]; // For nested structures like lists
   links: ContentLink[];
 }
 
 export interface ScrapedContent {
   title: string;
   content: string;
-  htmlContent: string; // Preserved HTML with formatting
+  htmlContent: string; // Full preserved HTML of main content
+  rawMainHtml: string; // Raw HTML of main content area (for editor)
   contentElements: ContentElement[]; // Structured content elements
   description?: string;
   url: string;
@@ -28,6 +31,9 @@ export interface ScrapedContent {
     h1: string[];
     h2: string[];
     h3: string[];
+    h4: string[];
+    h5: string[];
+    h6: string[];
   };
   links: {
     internal: number;
@@ -104,7 +110,7 @@ export async function fetchAndParseURL(url: string): Promise<ScrapedContent> {
     const $ = cheerio.load(html);
 
     // Remove script and style tags but keep content tags
-    $('script, style, noscript, iframe, nav, header, footer, aside, .nav, .header, .footer, .sidebar').remove();
+    $('script, style, noscript, iframe').remove();
 
     // Extract title
     const title = $('title').first().text().trim() || 
@@ -129,12 +135,17 @@ export async function fetchAndParseURL(url: string): Promise<ScrapedContent> {
       '.content',
       '.page-content',
       '.main-content',
+      '.post-body',
+      '.article-body',
+      '.single-content',
+      '.blog-post',
     ];
 
-    let $mainContent = null;
+    let $mainContent: cheerio.Cheerio<any> | null = null;
     for (const selector of mainSelectors) {
-      $mainContent = $(selector).first();
-      if ($mainContent.length > 0) {
+      const $candidate = $(selector).first();
+      if ($candidate.length > 0 && $candidate.text().trim().length > 200) {
+        $mainContent = $candidate;
         break;
       }
     }
@@ -144,112 +155,63 @@ export async function fetchAndParseURL(url: string): Promise<ScrapedContent> {
       $mainContent = $('body');
     }
 
-    // Extract structured content with HTML preservation
+    // Remove navigation, header, footer, sidebar from main content clone
+    const $contentClone = $mainContent.clone();
+    $contentClone.find('nav, header, footer, aside, .nav, .header, .footer, .sidebar, .navigation, .menu, .comments, .related-posts, .share-buttons, .social-share, .advertisement, .ad, [role="navigation"], [role="complementary"]').remove();
+
+    // Get raw HTML of the main content (for editor display)
+    const rawMainHtml = cleanHtmlForEditor($contentClone.html() || '', url, urlObj.hostname);
+
+    // Extract structured content elements
     const contentElements: ContentElement[] = [];
     const linkItems: ContentLink[] = [];
     let content = '';
     let textPosition = 0;
 
-    // Process content elements
-    $mainContent.find('p, h1, h2, h3, h4, h5, h6, li, blockquote').each((_, elem) => {
-      const $elem = $(elem);
-      const tagName = elem.tagName?.toLowerCase() || 'p';
-      const text = $elem.text().trim();
-      
-      if (!text || text.length < 3) return;
-      
-      // Get HTML with formatting preserved
-      let elementHtml = $elem.html() || '';
-      
-      // Process links within this element
-      const elementLinks: ContentLink[] = [];
-      $elem.find('a[href]').each((_, link) => {
-        const $link = $(link);
-        const href = $link.attr('href') || '';
-        const linkText = $link.text().trim();
-        
-        if (!href || !linkText) return;
-        
-        let linkType: 'internal' | 'external' = 'internal';
-        try {
-          const linkUrl = new URL(href, url);
-          linkType = linkUrl.hostname === urlObj.hostname ? 'internal' : 'external';
-        } catch {
-          linkType = 'internal';
-        }
-        
-        const linkStartIndex = text.indexOf(linkText);
-        elementLinks.push({
-          href,
-          text: linkText,
-          type: linkType,
-          startIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0),
-          endIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0) + linkText.length,
-        });
-        
-        linkItems.push({
-          href,
-          text: linkText,
-          type: linkType,
-          startIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0),
-          endIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0) + linkText.length,
-        });
-      });
-
-      // Determine element type
-      let type: ContentElement['type'] = 'paragraph';
-      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
-        type = 'heading';
-      } else if (tagName === 'li') {
-        type = 'list';
-      } else if (tagName === 'blockquote') {
-        type = 'blockquote';
+    // Process content elements in order
+    $contentClone.find('> *').each((_, elem) => {
+      const element = processElement($, elem, url, urlObj.hostname, textPosition);
+      if (element) {
+        contentElements.push(element.element);
+        content += element.text + '\n\n';
+        textPosition += element.text.length + 2;
+        linkItems.push(...element.links);
       }
-
-      contentElements.push({
-        type,
-        tag: tagName,
-        html: elementHtml,
-        text,
-        links: elementLinks,
-      });
-
-      content += text + '\n\n';
-      textPosition += text.length + 2;
     });
+
+    // Also process direct children that might be text nodes or inline elements
+    // If content is still empty, try a different approach
+    if (contentElements.length === 0 || content.trim().length < 100) {
+      content = '';
+      textPosition = 0;
+      contentElements.length = 0;
+      linkItems.length = 0;
+
+      // Process all meaningful content elements
+      $contentClone.find('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, pre, figure').each((_, elem) => {
+        const element = processElement($, elem, url, urlObj.hostname, textPosition);
+        if (element) {
+          contentElements.push(element.element);
+          content += element.text + '\n\n';
+          textPosition += element.text.length + 2;
+          linkItems.push(...element.links);
+        }
+      });
+    }
 
     content = content.trim();
 
-    // Build HTML content with proper link styling markers
-    let htmlContent = '';
-    for (const element of contentElements) {
-      let processedHtml = element.html;
-      
-      // Add data attributes to links for styling
-      const $tempEl = cheerio.load(`<div>${processedHtml}</div>`);
-      $tempEl('a[href]').each((_, link) => {
-        const $link = $tempEl(link);
-        const href = $link.attr('href') || '';
-        let linkType = 'internal';
-        try {
-          const linkUrl = new URL(href, url);
-          linkType = linkUrl.hostname === urlObj.hostname ? 'internal' : 'external';
-        } catch {
-          linkType = 'internal';
-        }
-        $link.attr('data-link-type', linkType);
-        $link.addClass(`link-${linkType}`);
-      });
-      processedHtml = $tempEl('div').html() || processedHtml;
-      
-      htmlContent += `<${element.tag}>${processedHtml}</${element.tag}>`;
-    }
+    // Build clean HTML content for editor
+    const htmlContent = buildCleanHtml(contentElements, url, urlObj.hostname);
 
-    // Extract headings
+    // Extract all headings
     const headings = {
       h1: $mainContent.find('h1').map((_, el) => $(el).text().trim()).get().filter(Boolean),
       h2: $mainContent.find('h2').map((_, el) => $(el).text().trim()).get().filter(Boolean),
       h3: $mainContent.find('h3').map((_, el) => $(el).text().trim()).get().filter(Boolean),
+      h4: $mainContent.find('h4').map((_, el) => $(el).text().trim()).get().filter(Boolean),
+      h5: $mainContent.find('h5').map((_, el) => $(el).text().trim()).get().filter(Boolean),
+      h6: $mainContent.find('h6').map((_, el) => $(el).text().trim()).get().filter(Boolean),
     };
 
     // Count links by type
@@ -279,6 +241,7 @@ export async function fetchAndParseURL(url: string): Promise<ScrapedContent> {
       title,
       content,
       htmlContent,
+      rawMainHtml,
       contentElements,
       description,
       url,
@@ -304,6 +267,282 @@ export async function fetchAndParseURL(url: string): Promise<ScrapedContent> {
   }
 }
 
+// Process a single element and return structured data
+function processElement(
+  $: cheerio.CheerioAPI,
+  elem: any,
+  baseUrl: string,
+  hostname: string,
+  textPosition: number
+): { element: ContentElement; text: string; links: ContentLink[] } | null {
+  const $elem = $(elem);
+  const tagName = elem.tagName?.toLowerCase() || 'div';
+  
+  // Skip if empty or whitespace only
+  const text = $elem.text().trim();
+  if (!text || text.length < 2) return null;
+
+  const links: ContentLink[] = [];
+
+  // Extract links from element
+  $elem.find('a[href]').each((_, link) => {
+    const $link = $(link);
+    const href = $link.attr('href') || '';
+    const linkText = $link.text().trim();
+    
+    if (!href || !linkText || href.startsWith('#')) return;
+    
+    let linkType: 'internal' | 'external' = 'internal';
+    try {
+      const linkUrl = new URL(href, baseUrl);
+      linkType = linkUrl.hostname === hostname ? 'internal' : 'external';
+    } catch {
+      linkType = 'internal';
+    }
+    
+    const linkStartIndex = text.indexOf(linkText);
+    links.push({
+      href,
+      text: linkText,
+      type: linkType,
+      startIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0),
+      endIndex: textPosition + (linkStartIndex >= 0 ? linkStartIndex : 0) + linkText.length,
+    });
+  });
+
+  // Process based on tag type
+  if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+    const level = parseInt(tagName.charAt(1));
+    return {
+      element: {
+        type: 'heading',
+        tag: tagName,
+        level,
+        html: processHtmlLinks($, $elem.html() || text, baseUrl, hostname),
+        text,
+        links,
+      },
+      text,
+      links,
+    };
+  }
+
+  if (tagName === 'ul' || tagName === 'ol') {
+    // Process list with all items
+    const listItems: ContentElement[] = [];
+    let listText = '';
+    
+    $elem.children('li').each((_, li) => {
+      const $li = $(li);
+      const liText = $li.text().trim();
+      if (liText) {
+        const liLinks: ContentLink[] = [];
+        
+        $li.find('a[href]').each((_, link) => {
+          const $link = $(link);
+          const href = $link.attr('href') || '';
+          const linkText = $link.text().trim();
+          
+          if (!href || !linkText || href.startsWith('#')) return;
+          
+          let linkType: 'internal' | 'external' = 'internal';
+          try {
+            const linkUrl = new URL(href, baseUrl);
+            linkType = linkUrl.hostname === hostname ? 'internal' : 'external';
+          } catch {
+            linkType = 'internal';
+          }
+          
+          liLinks.push({
+            href,
+            text: linkText,
+            type: linkType,
+            startIndex: textPosition + listText.length,
+            endIndex: textPosition + listText.length + linkText.length,
+          });
+          links.push(...liLinks);
+        });
+
+        listItems.push({
+          type: 'list-item',
+          tag: 'li',
+          html: processHtmlLinks($, $li.html() || liText, baseUrl, hostname),
+          text: liText,
+          links: liLinks,
+        });
+        listText += '• ' + liText + '\n';
+      }
+    });
+
+    if (listItems.length === 0) return null;
+
+    // Build list HTML
+    const listHtml = `<${tagName}>${listItems.map(item => `<li>${item.html}</li>`).join('')}</${tagName}>`;
+
+    return {
+      element: {
+        type: 'list',
+        tag: tagName,
+        html: listHtml,
+        text: listText.trim(),
+        children: listItems,
+        links,
+      },
+      text: listText.trim(),
+      links,
+    };
+  }
+
+  if (tagName === 'blockquote') {
+    return {
+      element: {
+        type: 'blockquote',
+        tag: tagName,
+        html: processHtmlLinks($, $elem.html() || text, baseUrl, hostname),
+        text,
+        links,
+      },
+      text,
+      links,
+    };
+  }
+
+  // Default: paragraph
+  if (['p', 'div', 'span', 'section', 'article'].includes(tagName)) {
+    // Check if this is a wrapper element
+    const directText = $elem.contents().filter(function() {
+      return this.type === 'text';
+    }).text().trim();
+    
+    // If element has substantial direct text or is a paragraph, include it
+    if (tagName === 'p' || directText.length > 10) {
+      return {
+        element: {
+          type: 'paragraph',
+          tag: 'p',
+          html: processHtmlLinks($, $elem.html() || text, baseUrl, hostname),
+          text,
+          links,
+        },
+        text,
+        links,
+      };
+    }
+  }
+
+  // For other elements with content, treat as paragraph
+  if (text.length > 20) {
+    return {
+      element: {
+        type: 'paragraph',
+        tag: 'p',
+        html: processHtmlLinks($, $elem.html() || text, baseUrl, hostname),
+        text,
+        links,
+      },
+      text,
+      links,
+    };
+  }
+
+  return null;
+}
+
+// Process HTML to add link type attributes
+function processHtmlLinks($: cheerio.CheerioAPI, html: string, baseUrl: string, hostname: string): string {
+  const $temp = cheerio.load(`<div>${html}</div>`);
+  
+  $temp('a[href]').each((_, link) => {
+    const $link = $temp(link);
+    const href = $link.attr('href') || '';
+    
+    if (!href || href.startsWith('#')) return;
+    
+    let linkType = 'internal';
+    try {
+      const linkUrl = new URL(href, baseUrl);
+      linkType = linkUrl.hostname === hostname ? 'internal' : 'external';
+    } catch {
+      linkType = 'internal';
+    }
+    
+    $link.attr('data-link-type', linkType);
+    $link.addClass(`link-${linkType}`);
+  });
+  
+  return $temp('div').html() || html;
+}
+
+// Build clean HTML from content elements
+function buildCleanHtml(elements: ContentElement[], baseUrl: string, hostname: string): string {
+  let html = '';
+  
+  for (const element of elements) {
+    switch (element.type) {
+      case 'heading':
+        html += `<${element.tag}>${element.html}</${element.tag}>\n`;
+        break;
+      case 'list':
+        html += `${element.html}\n`;
+        break;
+      case 'blockquote':
+        html += `<blockquote>${element.html}</blockquote>\n`;
+        break;
+      case 'paragraph':
+      default:
+        html += `<p>${element.html}</p>\n`;
+        break;
+    }
+  }
+  
+  return html.trim();
+}
+
+// Clean HTML for editor display
+function cleanHtmlForEditor(html: string, baseUrl: string, hostname: string): string {
+  if (!html) return '';
+  
+  const $ = cheerio.load(`<div>${html}</div>`);
+  
+  // Remove unwanted elements
+  $('script, style, noscript, iframe, form, input, button, .ad, .advertisement, .share, .social').remove();
+  
+  // Add link type attributes
+  $('a[href]').each((_, link) => {
+    const $link = $(link);
+    const href = $link.attr('href') || '';
+    
+    if (!href || href.startsWith('#')) return;
+    
+    let linkType = 'internal';
+    try {
+      const linkUrl = new URL(href, baseUrl);
+      linkType = linkUrl.hostname === hostname ? 'internal' : 'external';
+    } catch {
+      linkType = 'internal';
+    }
+    
+    $link.attr('data-link-type', linkType);
+    $link.addClass(`link-${linkType}`);
+  });
+  
+  // Ensure images have src attributes
+  $('img').each((_, img) => {
+    const $img = $(img);
+    const src = $img.attr('src') || $img.attr('data-src') || $img.attr('data-lazy-src');
+    if (src) {
+      try {
+        const absoluteSrc = new URL(src, baseUrl).href;
+        $img.attr('src', absoluteSrc);
+      } catch {
+        // Keep original src
+      }
+    }
+  });
+  
+  return $('div').html() || '';
+}
+
 export function extractTextFromHTML(html: string): string {
   const $ = cheerio.load(html);
   
@@ -312,7 +551,7 @@ export function extractTextFromHTML(html: string): string {
   
   // Extract text
   let text = '';
-  $('p, h1, h2, h3, h4, h5, h6, li, td, th').each((_, elem) => {
+  $('p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote').each((_, elem) => {
     const elementText = $(elem).text().trim();
     if (elementText) {
       text += elementText + '\n\n';

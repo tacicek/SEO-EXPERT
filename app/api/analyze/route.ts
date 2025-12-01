@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeContent } from '@/lib/ai/analyzer';
 import { fetchAndParseURL, type ScrapedContent } from '@/lib/scraper/content-fetcher';
-import type { AnalysisRequest, AnalysisResponse, ContentLinkInfo } from '@/lib/types/analysis';
+import type { AnalysisRequest, AnalysisResponse, ContentLinkInfo, ContentElementInfo } from '@/lib/types/analysis';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +29,20 @@ export async function POST(request: NextRequest) {
         scrapedData = await fetchAndParseURL(url);
         textToAnalyze = scrapedData.content;
         titleToUse = title || scrapedData.title;
+
+        console.log('Scraped content info:', {
+          title: scrapedData.title,
+          contentLength: scrapedData.content.length,
+          htmlContentLength: scrapedData.htmlContent?.length || 0,
+          rawMainHtmlLength: scrapedData.rawMainHtml?.length || 0,
+          contentElementsCount: scrapedData.contentElements?.length || 0,
+          wordCount: scrapedData.wordCount,
+          headings: {
+            h1: scrapedData.headings.h1.length,
+            h2: scrapedData.headings.h2.length,
+            h3: scrapedData.headings.h3.length,
+          },
+        });
 
         // Validate content length
         if (textToAnalyze.length < 100) {
@@ -65,9 +79,31 @@ export async function POST(request: NextRequest) {
       analysisResult.url = url;
     }
 
-    // Add HTML content and links if we scraped from URL
+    // Add HTML content, structured elements, and links if we scraped from URL
     if (scrapedData) {
+      // Add processed HTML content
       analysisResult.htmlContent = scrapedData.htmlContent;
+      
+      // Add raw HTML for editor display (preserves full structure)
+      analysisResult.rawMainHtml = scrapedData.rawMainHtml;
+      
+      // Add structured content elements
+      analysisResult.contentElements = scrapedData.contentElements.map(el => ({
+        type: el.type,
+        tag: el.tag,
+        level: el.level,
+        html: el.html,
+        text: el.text,
+        children: el.children?.map(child => ({
+          type: child.type,
+          tag: child.tag,
+          html: child.html,
+          text: child.text,
+        })),
+      })) as ContentElementInfo[];
+      
+      // Add headings info
+      analysisResult.headings = scrapedData.headings;
       
       // Convert links to the expected format
       const links: ContentLinkInfo[] = scrapedData.links.items.map(link => ({

@@ -87,11 +87,34 @@ export interface ContentLinkInfo {
   type: 'internal' | 'external';
 }
 
+// Content element structure for structured content display
+export interface ContentElementInfo {
+  type: 'paragraph' | 'heading' | 'list' | 'blockquote' | 'list-item';
+  tag: string;
+  level?: number; // For headings (1-6)
+  html: string;
+  text: string;
+  children?: ContentElementInfo[]; // For nested structures like lists
+}
+
+// Headings structure
+export interface HeadingsInfo {
+  h1: string[];
+  h2: string[];
+  h3: string[];
+  h4: string[];
+  h5: string[];
+  h6: string[];
+}
+
 export interface AnalysisResult {
   id: string;
   url?: string;
   title: string;
-  htmlContent?: string; // Preserved HTML with formatting
+  htmlContent?: string; // Processed HTML with formatted elements
+  rawMainHtml?: string; // Raw HTML of main content area (for editor)
+  contentElements?: ContentElementInfo[]; // Structured content elements
+  headings?: HeadingsInfo; // All headings in the content
   content_summary: ContentSummary;
   sentence_analysis: SentenceAnalysis[];
   eeat_scores: EEATScores;
