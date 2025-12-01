@@ -5,163 +5,247 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { Loader2, Search, AlertTriangle } from "lucide-react";
+import { Loader2, Search, AlertTriangle, CheckCircle2, FileText, ChevronRight, ChevronDown } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function TestAnalyzerPage() {
     const [url, setUrl] = useState('');
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<any>(null);
+    const [analyzing, setAnalyzing] = useState(false);
+    const [pages, setPages] = useState<string[]>([]);
+    const [results, setResults] = useState<any[]>([]);
+    const [progress, setProgress] = useState(0);
+    const [selectedResult, setSelectedResult] = useState<any>(null);
 
-    const handleAnalyze = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const fetchSitemap = async () => {
         setLoading(true);
-        setResult(null);
-
+        setPages([]);
+        setResults([]);
+        setSelectedResult(null);
         try {
-            const res = await fetch('/api/technical-analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || 'Analysis failed');
+            // If it's a sitemap URL
+            if (url.includes('sitemap') || url.endsWith('.xml')) {
+                const res = await fetch('/api/utils/sitemap', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+                if (data.urls) {
+                    setPages(data.urls);
+                } else {
+                    throw new Error(data.error || 'No URLs found');
+                }
+            } else {
+                // Just a single page
+                setPages([url]);
             }
-
-            setResult(data);
-        } catch (error: any) {
-            setResult({
-                status: 'error',
-                message: 'Analysis Failed',
-                details: error.message
-            });
+        } catch (error) {
+            console.error(error);
+            // Fallback to single page if sitemap fetch fails
+            setPages([url]);
         } finally {
             setLoading(false);
         }
     };
 
+    const runAudit = async () => {
+        setAnalyzing(true);
+        setProgress(0);
+        setResults([]);
+
+        let completed = 0;
+        const newResults = [];
+
+        for (const pageUrl of pages) {
+            try {
+                const res = await fetch('/api/technical-analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: pageUrl })
+                });
+                const data = await res.json();
+                newResults.push({ url: pageUrl, ...data, status: res.ok ? 'success' : 'error' });
+            } catch (error) {
+                newResults.push({ url: pageUrl, status: 'error', error: 'Failed to analyze' });
+            }
+            completed++;
+            setProgress((completed / pages.length) * 100);
+            setResults([...newResults]);
+        }
+        setAnalyzing(false);
+    };
+
+    const getScoreColor = (score: number) => {
+        if (score >= 90) return 'text-green-600';
+        if (score >= 70) return 'text-orange-500';
+        return 'text-red-500';
+    };
+
     return (
         <MainLayout>
-            <div className="max-w-4xl mx-auto space-y-8">
+            <div className="max-w-6xl mx-auto space-y-8">
                 <div className="text-center space-y-4">
-                    <h1 className="text-3xl font-bold tracking-tight">Technical SEO Analyzer</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Technical SEO Audit</h1>
                     <p className="text-muted-foreground max-w-2xl mx-auto">
-                        Deep dive into your site's technical performance. Analyze meta tags, headings, schema markup, and more.
+                        Enter your domain or sitemap URL to perform a comprehensive technical analysis of your website.
                     </p>
                 </div>
 
+                {/* Input Section */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Run a Technical Audit</CardTitle>
-                        <CardDescription>Enter a URL to check for technical SEO issues</CardDescription>
+                        <CardTitle>Start Audit</CardTitle>
+                        <CardDescription>Enter URL (e.g., https://example.com or https://example.com/sitemap.xml)</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={handleAnalyze} className="flex gap-4">
+                        <div className="flex gap-4">
                             <Input
-                                placeholder="https://example.com"
+                                placeholder="https://example.com/sitemap.xml"
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
-                                required
                                 className="flex-1"
                             />
-                            <Button type="submit" disabled={loading}>
-                                {loading ? (
-                                    <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Analyzing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Search className="mr-2 h-4 w-4" />
-                                        Analyze
-                                    </>
-                                )}
+                            <Button onClick={fetchSitemap} disabled={loading || analyzing || !url}>
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                                Fetch Pages
                             </Button>
-                        </form>
+                        </div>
                     </CardContent>
                 </Card>
 
-                {result && result.status === 'error' && (
-                    <Card className="border-red-500/50 bg-red-50 dark:bg-red-950/10">
+                {/* Pages Found & Progress */}
+                {pages.length > 0 && (
+                    <Card>
                         <CardHeader>
-                            <div className="flex items-center gap-2 text-red-600 dark:text-red-500">
-                                <AlertTriangle className="h-5 w-5" />
-                                <CardTitle className="text-lg">Error</CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle>Analysis Queue ({pages.length} pages)</CardTitle>
+                                {!analyzing && results.length === 0 && (
+                                    <Button onClick={runAudit}>Start Analysis</Button>
+                                )}
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <p className="font-medium">{result.message}</p>
-                            <p className="text-sm text-muted-foreground mt-2">{result.details}</p>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {result && !result.status && (
-                    <div className="space-y-6">
-                        {/* Score Card */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Overall Score</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-4xl font-bold text-primary">{result.score.overall}/100</div>
-                            </CardContent>
-                        </Card>
-
-                        {/* Issues List */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Issues Found</CardTitle>
-                                <CardDescription>Prioritized list of technical issues</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                {result.issues.length === 0 ? (
-                                    <p className="text-green-600">No issues found! Great job.</p>
-                                ) : (
-                                    <ul className="space-y-3">
-                                        {result.issues.map((issue: any, index: number) => (
-                                            <li key={index} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/50">
-                                                {issue.impact === 'high' ? (
-                                                    <div className="h-2 w-2 mt-2 rounded-full bg-red-500 shrink-0" />
-                                                ) : issue.impact === 'medium' ? (
-                                                    <div className="h-2 w-2 mt-2 rounded-full bg-orange-500 shrink-0" />
-                                                ) : (
-                                                    <div className="h-2 w-2 mt-2 rounded-full bg-blue-500 shrink-0" />
-                                                )}
-                                                <div>
-                                                    <p className="font-medium">{issue.message}</p>
-                                                    <span className="text-xs uppercase text-muted-foreground">{issue.impact} impact</span>
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {/* Meta Details */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Meta Tags</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="p-3 border rounded-lg">
-                                        <div className="text-sm text-muted-foreground mb-1">Title</div>
-                                        <div className="font-medium break-words">{result.meta.title.value || <span className="text-red-500">Missing</span>}</div>
-                                        <div className="text-xs text-muted-foreground mt-1">{result.meta.title.length} chars</div>
+                            {analyzing && (
+                                <div className="space-y-2 mb-4">
+                                    <div className="flex justify-between text-sm">
+                                        <span>Analyzing...</span>
+                                        <span>{Math.round(progress)}%</span>
                                     </div>
-                                    <div className="p-3 border rounded-lg">
-                                        <div className="text-sm text-muted-foreground mb-1">Description</div>
-                                        <div className="font-medium break-words">{result.meta.description.value || <span className="text-red-500">Missing</span>}</div>
-                                        <div className="text-xs text-muted-foreground mt-1">{result.meta.description.length} chars</div>
+                                    <Progress value={progress} />
+                                </div>
+                            )}
+
+                            {!analyzing && results.length > 0 && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Results List */}
+                                    <div className="md:col-span-1 border-r pr-4">
+                                        <ScrollArea className="h-[600px]">
+                                            <div className="space-y-2">
+                                                {results.map((res, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setSelectedResult(res)}
+                                                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${selectedResult === res ? 'bg-primary/10 border-primary' : 'hover:bg-muted'}`}
+                                                    >
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <Badge variant={res.score?.overall >= 90 ? 'default' : 'secondary'} className={res.score?.overall < 70 ? 'bg-red-100 text-red-800 hover:bg-red-100' : ''}>
+                                                                {res.score?.overall || 0}
+                                                            </Badge>
+                                                            {res.issues?.length > 0 && (
+                                                                <span className="text-xs text-red-500 flex items-center">
+                                                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                                                    {res.issues.length}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-sm truncate font-medium">{res.url}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </ScrollArea>
+                                    </div>
+
+                                    {/* Detail View */}
+                                    <div className="md:col-span-2">
+                                        {selectedResult ? (
+                                            <div className="space-y-6">
+                                                <div className="flex items-center justify-between">
+                                                    <h2 className="text-xl font-bold truncate max-w-[400px]">{selectedResult.url}</h2>
+                                                    <div className={`text-2xl font-bold ${getScoreColor(selectedResult.score?.overall)}`}>
+                                                        Score: {selectedResult.score?.overall}/100
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="p-4 bg-muted/50 rounded-lg text-center">
+                                                        <div className="text-2xl font-bold">{selectedResult.content?.word_count || 0}</div>
+                                                        <div className="text-xs text-muted-foreground">Words</div>
+                                                    </div>
+                                                    <div className="p-4 bg-muted/50 rounded-lg text-center">
+                                                        <div className="text-2xl font-bold">{selectedResult.links?.internal || 0}</div>
+                                                        <div className="text-xs text-muted-foreground">Internal Links</div>
+                                                    </div>
+                                                    <div className="p-4 bg-muted/50 rounded-lg text-center">
+                                                        <div className="text-2xl font-bold">{selectedResult.images?.missing_alt || 0}</div>
+                                                        <div className="text-xs text-muted-foreground">Missing Alt</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                    <h3 className="font-semibold text-lg">Issues & Recommendations</h3>
+                                                    {selectedResult.issues?.length === 0 ? (
+                                                        <div className="flex items-center gap-2 text-green-600 p-4 bg-green-50 rounded-lg">
+                                                            <CheckCircle2 className="h-5 w-5" />
+                                                            <span>No issues found. This page is technically optimized!</span>
+                                                        </div>
+                                                    ) : (
+                                                        selectedResult.issues?.map((issue: any, idx: number) => (
+                                                            <Card key={idx} className="border-l-4 border-l-red-500">
+                                                                <CardHeader className="pb-2">
+                                                                    <div className="flex items-start justify-between">
+                                                                        <CardTitle className="text-base font-bold text-red-600 flex items-center gap-2">
+                                                                            <AlertTriangle className="h-4 w-4" />
+                                                                            {issue.message}
+                                                                        </CardTitle>
+                                                                        <Badge variant="outline">{issue.impact}</Badge>
+                                                                    </div>
+                                                                </CardHeader>
+                                                                <CardContent className="space-y-3 text-sm">
+                                                                    <div>
+                                                                        <span className="font-semibold text-foreground">Why it matters:</span>
+                                                                        <p className="text-muted-foreground mt-1">{issue.explanation}</p>
+                                                                    </div>
+                                                                    <div className="bg-muted p-3 rounded-md">
+                                                                        <span className="font-semibold text-primary">How to fix:</span>
+                                                                        <p className="mt-1">{issue.fix}</p>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="h-full flex items-center justify-center text-muted-foreground">
+                                                Select a page from the list to view details
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            </CardContent>
-                        </Card>
-                    </div>
+                            )}
+                        </CardContent>
+                    </Card>
                 )}
             </div>
         </MainLayout>
