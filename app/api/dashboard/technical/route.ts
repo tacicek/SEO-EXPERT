@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { technicalSEOService } from '@/lib/services/technical-seo';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { supabase } from '@/lib/db/supabase';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,26 +19,20 @@ export async function POST(request: NextRequest) {
     // Generate dashboard data
     const dashboardData = technicalSEOService.getDashboardData(analysis);
 
+    // Try to get user from auth header
+    const authHeader = request.headers.get('authorization');
+    let userId: string | null = null;
+
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const { data: { user } } = await supabase.auth.getUser(token);
+      userId = user?.id || null;
+    }
+
     // Save to database if user is authenticated
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-        },
-      }
-    );
-
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (user) {
-      // Store the analysis result
+    if (userId) {
       await supabase.from('technical_analyses').insert({
-        user_id: user.id,
+        user_id: userId,
         site_id: site_id || null,
         url,
         score: analysis.score.overall,
@@ -54,7 +47,7 @@ export async function POST(request: NextRequest) {
         medium_issues: dashboardData.site_health.medium_issues,
         low_issues: dashboardData.site_health.low_issues,
         analysis_data: analysis,
-      }).select().single();
+      });
     }
 
     return NextResponse.json({
@@ -78,26 +71,35 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
+    // Try to get user from auth header
+    const authHeader = request.headers.get('authorization');
+    
+    if (!authHeader?.startsWith('Bearer ')) {
+      // Return empty data for unauthenticated users
+      return NextResponse.json({
+        success: true,
+        data: {
+          stats: { total_analyses: 0, avg_score: 0, total_issues: 0, high_priority_issues: 0 },
+          scoreTrend: [],
+          issuesByCategory: { meta: 0, headings: 0, images: 0, schema: 0, content: 0, url: 0 },
+          recentAnalyses: [],
         },
-      }
-    );
+      });
+    }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const token = authHeader.substring(7);
+    const { data: { user } } = await supabase.auth.getUser(token);
 
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        success: true,
+        data: {
+          stats: { total_analyses: 0, avg_score: 0, total_issues: 0, high_priority_issues: 0 },
+          scoreTrend: [],
+          issuesByCategory: { meta: 0, headings: 0, images: 0, schema: 0, content: 0, url: 0 },
+          recentAnalyses: [],
+        },
+      });
     }
 
     // Get latest technical analyses for dashboard
@@ -109,7 +111,17 @@ export async function GET(request: NextRequest) {
       .limit(10);
 
     if (error) {
-      throw error;
+      console.error('Database error:', error);
+      // Return empty data on error instead of throwing
+      return NextResponse.json({
+        success: true,
+        data: {
+          stats: { total_analyses: 0, avg_score: 0, total_issues: 0, high_priority_issues: 0 },
+          scoreTrend: [],
+          issuesByCategory: { meta: 0, headings: 0, images: 0, schema: 0, content: 0, url: 0 },
+          recentAnalyses: [],
+        },
+      });
     }
 
     // Calculate aggregate stats
@@ -131,28 +143,40 @@ export async function GET(request: NextRequest) {
     // Aggregate issues by category
     const issuesByCategory = {
       meta: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.meta?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const meta = data?.meta as Record<string, unknown> | undefined;
+        const issues = meta?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
       headings: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.headings?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const headings = data?.headings as Record<string, unknown> | undefined;
+        const issues = headings?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
       images: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.images?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const images = data?.images as Record<string, unknown> | undefined;
+        const issues = images?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
       schema: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.schema_markup?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const schema = data?.schema_markup as Record<string, unknown> | undefined;
+        const issues = schema?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
       content: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.content_quality?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const content = data?.content_quality as Record<string, unknown> | undefined;
+        const issues = content?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
       url: analyses?.reduce((sum, a) => {
-        const data = a.analysis_data as any;
-        return sum + (data?.url_structure?.issues?.length || 0);
+        const data = a.analysis_data as Record<string, unknown>;
+        const urlData = data?.url_structure as Record<string, unknown> | undefined;
+        const issues = urlData?.issues as unknown[] | undefined;
+        return sum + (issues?.length || 0);
       }, 0) || 0,
     };
 
@@ -176,4 +200,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
