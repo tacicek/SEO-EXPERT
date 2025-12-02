@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Seomind - AI-Powered Content Analysis",
   description: "Analyze your content with the depth of a 15-year SEO strategist. Get sentence-level feedback based on E-E-A-T principles.",
+  icons: {
+    icon: '/seomind-logo.png',
+    shortcut: '/seomind-logo.png',
+    apple: '/seomind-logo.png',
+  },
 };
 
 export default function RootLayout({
