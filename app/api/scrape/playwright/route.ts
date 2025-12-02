@@ -10,8 +10,8 @@ export interface PlaywrightScrapeRequest {
   url: string;
   usePlaywright?: boolean;
   timeoutMs?: number;
+  minWords?: number;
   scrollWaitMs?: number;
-  finalWaitMs?: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -20,9 +20,9 @@ export async function POST(request: NextRequest) {
     const { 
       url, 
       usePlaywright = true, 
-      timeoutMs = 45000, 
-      scrollWaitMs = 1500, 
-      finalWaitMs = 1000 
+      timeoutMs = 60000, 
+      minWords = 150,
+      scrollWaitMs = 2000
     } = body;
 
     // Validate URL
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
     const options: PlaywrightScrapeOptions = {
       usePlaywright,
       timeoutMs,
+      minWords,
       scrollWaitMs,
-      finalWaitMs,
     };
 
     const extractedContent = await extractContentWithPlaywright(url, options);

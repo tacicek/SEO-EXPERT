@@ -29,15 +29,15 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     url: HttpUrl
     use_playwright: Optional[bool] = True  # Use Playwright by default
-    timeout_ms: Optional[int] = 45000
-    scroll_wait_ms: Optional[int] = 1500
+    timeout_ms: Optional[int] = 60000
+    min_words: Optional[int] = 150
 
 class ScrapeRequest(BaseModel):
     url: HttpUrl
     use_playwright: Optional[bool] = True
-    timeout_ms: Optional[int] = 45000
-    scroll_wait_ms: Optional[int] = 1500
-    final_wait_ms: Optional[int] = 1000
+    timeout_ms: Optional[int] = 60000
+    min_words: Optional[int] = 150
+    scroll_wait_ms: Optional[int] = 2000
 
 class HealthResponse(BaseModel):
     status: str
@@ -121,23 +121,27 @@ async def scrape_url(request: ScrapeRequest):
         from app.scraper.extractor import extract_content, extract_full_text
         from app.utils.fetcher import fetch_html
         
-        # Fetch HTML
+        # Fetch HTML with full rendering
         if request.use_playwright:
             html_content = await get_rendered_html_async(
                 url_str,
-                timeout_ms=request.timeout_ms or 45000,
-                scroll_wait_ms=request.scroll_wait_ms or 1500,
-                final_wait_ms=request.final_wait_ms or 1000
+                timeout_ms=request.timeout_ms or 60000,
+                min_words=request.min_words or 150,
+                scroll_wait_ms=request.scroll_wait_ms or 2000
             )
         else:
             html_content = await fetch_html(url_str)
         
-        # Extract content using full DOM walker
+        # Extract content using multi-strategy extraction
         content_data = extract_content(html_content)
         
         # Log extraction stats
         word_count = content_data.get('metadata', {}).get('word_count', 0)
         logger.info(f"Extracted {word_count} words from {url_str}")
+        
+        # Warn if low word count
+        if word_count < 100:
+            logger.warning(f"Low word count ({word_count}) for {url_str}")
         
         return ScrapeResponse(
             url=url_str,
@@ -189,14 +193,18 @@ async def analyze_url(request: AnalyzeRequest):
             
             html_content = await get_rendered_html_async(
                 url_str,
-                timeout_ms=request.timeout_ms or 45000,
-                scroll_wait_ms=request.scroll_wait_ms or 1500,
-                final_wait_ms=1000
+                timeout_ms=request.timeout_ms or 60000,
+                min_words=request.min_words or 150,
+                scroll_wait_ms=2000
             )
             
-            # Extract structured content using full DOM walker
+            # Extract structured content using multi-strategy extraction
             extracted_content = extract_content(html_content)
-            logger.info(f"Playwright extracted {extracted_content.get('metadata', {}).get('word_count', 0)} words")
+            word_count = extracted_content.get('metadata', {}).get('word_count', 0)
+            logger.info(f"Playwright extracted {word_count} words")
+            
+            if word_count < 100:
+                logger.warning(f"Low word count ({word_count}) for {url_str}")
         else:
             html_content = await fetch_html(url_str)
             extracted_content = None
@@ -347,19 +355,22 @@ async def extract_content_endpoint(request: ScrapeRequest):
         if request.use_playwright:
             html_content = await get_rendered_html_async(
                 url_str,
-                timeout_ms=request.timeout_ms or 45000,
-                scroll_wait_ms=request.scroll_wait_ms or 1500,
-                final_wait_ms=request.final_wait_ms or 1000
+                timeout_ms=request.timeout_ms or 60000,
+                min_words=request.min_words or 150,
+                scroll_wait_ms=request.scroll_wait_ms or 2000
             )
         else:
             html_content = await fetch_html(url_str)
         
-        # Extract content using full DOM walker
+        # Extract content using multi-strategy extraction
         content_data = extract_content(html_content)
         
         # Log extraction result
         word_count = content_data.get('metadata', {}).get('word_count', 0)
         logger.info(f"Extracted {word_count} words from {url_str}")
+        
+        if word_count < 100:
+            logger.warning(f"Low word count for EEAT analysis: {word_count}")
         
         return {
             "url": url_str,

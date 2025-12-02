@@ -61,15 +61,15 @@ export interface PlaywrightExtractedContent {
 export interface PlaywrightScrapeOptions {
   usePlaywright?: boolean;
   timeoutMs?: number;
+  minWords?: number;
   scrollWaitMs?: number;
-  finalWaitMs?: number;
 }
 
 const DEFAULT_OPTIONS: PlaywrightScrapeOptions = {
   usePlaywright: true,
-  timeoutMs: 45000,
-  scrollWaitMs: 1500,
-  finalWaitMs: 1000,
+  timeoutMs: 60000,
+  minWords: 150,
+  scrollWaitMs: 2000,
 };
 
 /**
@@ -125,8 +125,8 @@ export async function extractContentWithPlaywright(
         url: url,
         use_playwright: opts.usePlaywright,
         timeout_ms: opts.timeoutMs,
+        min_words: opts.minWords,
         scroll_wait_ms: opts.scrollWaitMs,
-        final_wait_ms: opts.finalWaitMs,
       }),
     });
 
@@ -183,8 +183,8 @@ export async function scrapeWithPlaywright(
         url: url,
         use_playwright: opts.usePlaywright,
         timeout_ms: opts.timeoutMs,
+        min_words: opts.minWords,
         scroll_wait_ms: opts.scrollWaitMs,
-        final_wait_ms: opts.finalWaitMs,
       }),
     });
 
@@ -240,7 +240,7 @@ export async function analyzeWithPlaywright(
         url: url,
         use_playwright: opts.usePlaywright,
         timeout_ms: opts.timeoutMs,
-        scroll_wait_ms: opts.scrollWaitMs,
+        min_words: opts.minWords,
       }),
     });
 
