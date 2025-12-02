@@ -9,15 +9,21 @@ import {
 export interface PlaywrightScrapeRequest {
   url: string;
   usePlaywright?: boolean;
-  waitForNetwork?: boolean;
-  handleCookies?: boolean;
-  blockResources?: boolean;
+  timeoutMs?: number;
+  scrollWaitMs?: number;
+  finalWaitMs?: number;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: PlaywrightScrapeRequest = await request.json();
-    const { url, usePlaywright = true, waitForNetwork = true, handleCookies = true, blockResources = true } = body;
+    const { 
+      url, 
+      usePlaywright = true, 
+      timeoutMs = 45000, 
+      scrollWaitMs = 1500, 
+      finalWaitMs = 1000 
+    } = body;
 
     // Validate URL
     if (!url) {
@@ -48,12 +54,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Extract content using Playwright
+    // Extract content using Playwright with full DOM walker
     const options: PlaywrightScrapeOptions = {
       usePlaywright,
-      waitForNetwork,
-      handleCookies,
-      blockResources,
+      timeoutMs,
+      scrollWaitMs,
+      finalWaitMs,
     };
 
     const extractedContent = await extractContentWithPlaywright(url, options);
@@ -92,7 +98,6 @@ export async function GET() {
     endpoints: {
       scrape: 'POST /api/scrape/playwright',
     },
-    description: 'Playwright-powered content extraction for JavaScript-rendered pages',
+    description: 'Playwright-powered content extraction for JavaScript-rendered pages. Optimized for WordPress and modern JS sites.',
   });
 }
-

@@ -1,12 +1,13 @@
 """
 Playwright-based HTML renderer for JavaScript-heavy pages.
-Handles dynamic content, cookie popups, and JS redirects.
+Optimized for WordPress and modern JS-rendered websites.
+Handles lazy loading, AJAX content, and cookie consent popups.
 """
 
 import asyncio
 import logging
 from typing import Optional
-from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 
 logger = logging.getLogger(__name__)
 
@@ -14,22 +15,28 @@ logger = logging.getLogger(__name__)
 _browser: Optional[Browser] = None
 _playwright = None
 
-# Common cookie consent button selectors
+# Cookie consent button selectors - comprehensive list
 COOKIE_CONSENT_SELECTORS = [
-    # Generic patterns
-    'button[id*="accept"]',
-    'button[id*="consent"]',
-    'button[id*="agree"]',
-    'button[id*="cookie"]',
-    'button[class*="accept"]',
-    'button[class*="consent"]',
-    'button[class*="agree"]',
-    '[data-testid*="accept"]',
-    '[data-testid*="consent"]',
-    # Common cookie consent plugins
+    # Generic accept buttons
+    'button[id*="accept" i]',
+    'button[id*="consent" i]',
+    'button[id*="agree" i]',
+    'button[id*="cookie" i]',
+    'button[class*="accept" i]',
+    'button[class*="consent" i]',
+    'button[class*="agree" i]',
+    'a[id*="accept" i]',
+    'a[class*="accept" i]',
+    '[data-testid*="accept" i]',
+    '[data-testid*="consent" i]',
+    
+    # Common cookie plugins
     '#onetrust-accept-btn-handler',
     '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+    '#CybotCookiebotDialogBodyButtonAccept',
     '.cc-btn.cc-allow',
+    '.cc-accept',
+    '.cc-dismiss',
     '.cookie-consent-accept',
     '#cookie-consent-accept',
     '.gdpr-accept',
@@ -37,23 +44,103 @@ COOKIE_CONSENT_SELECTORS = [
     '.cookie-accept-all',
     '#accept-cookies',
     '.accept-cookies-button',
-    '[aria-label*="Accept cookies"]',
-    '[aria-label*="Accept all"]',
+    '#cookie-accept',
+    '.cookie-notice-accept',
+    '#cn-accept-cookie',
+    '.cli_accept_all_btn',
+    '#cli-accept-all-btn',
+    
+    # ARIA labels
+    '[aria-label*="Accept" i]',
+    '[aria-label*="Accept all" i]',
+    '[aria-label*="Accept cookies" i]',
+    '[aria-label*="Agree" i]',
+    
+    # Text-based selectors (Playwright specific)
     'button:has-text("Accept")',
     'button:has-text("Accept All")',
+    'button:has-text("Accept Cookies")',
     'button:has-text("I Accept")',
-    'button:has-text("Kabul")',  # Turkish
-    'button:has-text("Kabul Et")',  # Turkish
-    'button:has-text("Tamam")',  # Turkish
-    'button:has-text("Tümünü Kabul Et")',  # Turkish
+    'button:has-text("I Agree")',
+    'button:has-text("Agree")',
+    'button:has-text("OK")',
+    'button:has-text("Got it")',
+    'button:has-text("Allow")',
+    'button:has-text("Allow All")',
+    'button:has-text("Continue")',
+    'button:has-text("Close")',
+    'a:has-text("Accept")',
+    'a:has-text("I Accept")',
+    'a:has-text("Agree")',
+    
+    # Turkish
+    'button:has-text("Kabul")',
+    'button:has-text("Kabul Et")',
+    'button:has-text("Kabul Ediyorum")',
+    'button:has-text("Tamam")',
+    'button:has-text("Tümünü Kabul Et")',
+    'button:has-text("Anladım")',
+    
+    # German
+    'button:has-text("Akzeptieren")',
+    'button:has-text("Alle akzeptieren")',
+    'button:has-text("Zustimmen")',
+    
+    # French
+    'button:has-text("Accepter")',
+    'button:has-text("Tout accepter")',
+    
+    # Spanish
+    'button:has-text("Aceptar")',
+    'button:has-text("Aceptar todo")',
 ]
 
-# Desktop user agents
+# Desktop user agent
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+    "Chrome/121.0.0.0 Safari/537.36"
 )
+
+# Scroll script for lazy loading
+SCROLL_SCRIPT = """
+async () => {
+    // Get page height
+    const getScrollHeight = () => Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.offsetHeight,
+        document.body.clientHeight,
+        document.documentElement.clientHeight
+    );
+    
+    // Scroll down gradually to trigger lazy loading
+    const scrollStep = window.innerHeight;
+    let currentPosition = 0;
+    const maxScrolls = 50; // Safety limit
+    let scrollCount = 0;
+    
+    while (currentPosition < getScrollHeight() && scrollCount < maxScrolls) {
+        window.scrollTo(0, currentPosition);
+        currentPosition += scrollStep;
+        scrollCount++;
+        await new Promise(r => setTimeout(r, 100));
+    }
+    
+    // Final scroll to absolute bottom
+    window.scrollTo(0, getScrollHeight());
+    await new Promise(r => setTimeout(r, 300));
+    
+    // Scroll back to top
+    window.scrollTo(0, 0);
+    
+    return {
+        totalHeight: getScrollHeight(),
+        scrollCount: scrollCount
+    };
+}
+"""
 
 
 async def _get_browser() -> Browser:
@@ -61,6 +148,7 @@ async def _get_browser() -> Browser:
     global _browser, _playwright
     
     if _browser is None or not _browser.is_connected():
+        logger.info("Starting Playwright browser...")
         _playwright = await async_playwright().start()
         _browser = await _playwright.chromium.launch(
             headless=True,
@@ -71,9 +159,11 @@ async def _get_browser() -> Browser:
                 '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
                 '--window-size=1920,1080',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
             ]
         )
-        logger.info("Playwright browser instance created")
+        logger.info("Playwright browser started successfully")
     
     return _browser
 
@@ -85,143 +175,191 @@ async def _close_browser():
     if _browser:
         await _browser.close()
         _browser = None
+        logger.info("Browser closed")
     
     if _playwright:
         await _playwright.stop()
         _playwright = None
 
 
-async def _handle_cookie_consent(page: Page) -> None:
+async def _click_cookie_consent(page: Page) -> bool:
     """
-    Try to click cookie consent buttons automatically.
-    Attempts multiple common selectors.
+    Try to click cookie consent buttons.
+    Returns True if a button was clicked.
     """
+    clicked = False
+    
     for selector in COOKIE_CONSENT_SELECTORS:
         try:
-            # Check if element exists and is visible
             element = page.locator(selector).first
             if await element.count() > 0:
+                # Check if visible
                 is_visible = await element.is_visible()
                 if is_visible:
-                    await element.click(timeout=2000)
-                    logger.info(f"Clicked cookie consent button: {selector}")
-                    await asyncio.sleep(0.5)  # Wait for dialog to close
-                    return
+                    await element.click(timeout=2000, force=True)
+                    logger.info(f"Clicked cookie consent: {selector}")
+                    clicked = True
+                    await asyncio.sleep(500 / 1000)  # 500ms wait
+                    break
         except Exception:
-            # Silently continue to next selector
             continue
-
-
-async def _block_resources(route):
-    """Block unnecessary resources for faster loading."""
-    resource_type = route.request.resource_type
     
-    # Block CSS, images, fonts, and media for speed
-    if resource_type in ['stylesheet', 'image', 'font', 'media']:
-        await route.abort()
-    else:
-        await route.continue_()
+    return clicked
+
+
+async def _wait_for_content_ready(page: Page) -> None:
+    """Wait for dynamic content to be ready (WordPress/AJAX specific)."""
+    try:
+        # Wait for common WordPress content containers
+        wp_selectors = [
+            'article',
+            '.entry-content',
+            '.post-content',
+            '.article-content',
+            '.content-area',
+            'main',
+            '#content',
+            '.site-content',
+        ]
+        
+        for selector in wp_selectors:
+            try:
+                await page.wait_for_selector(selector, timeout=3000)
+                logger.debug(f"Found content container: {selector}")
+                break
+            except:
+                continue
+                
+    except Exception as e:
+        logger.debug(f"Content ready check: {e}")
 
 
 async def get_rendered_html_async(
     url: str,
-    wait_for_network: bool = True,
-    handle_cookies: bool = True,
-    block_resources: bool = True,
-    timeout_ms: int = 30000,
-    extra_wait_ms: int = 1000
+    timeout_ms: int = 45000,
+    scroll_wait_ms: int = 1500,
+    final_wait_ms: int = 1000
 ) -> str:
     """
-    Fetch and render a URL using Playwright (headless Chromium).
+    Fetch and render a URL using Playwright with full content loading.
+    
+    Optimized for WordPress and JS-rendered sites:
+    1. Navigate with domcontentloaded
+    2. Scroll to bottom to trigger lazy loading
+    3. Wait for AJAX content
+    4. Click cookie consent buttons
+    5. Wait for networkidle
+    6. Return fully rendered HTML
     
     Args:
         url: The URL to render
-        wait_for_network: Wait for network to be idle
-        handle_cookies: Try to auto-click cookie consent popups
-        block_resources: Block CSS/images/fonts for speed
-        timeout_ms: Page load timeout in milliseconds
-        extra_wait_ms: Additional wait time after load
+        timeout_ms: Total page load timeout
+        scroll_wait_ms: Wait time after scrolling (for lazy load)
+        final_wait_ms: Final wait before capturing HTML
         
     Returns:
         Fully rendered HTML string
-        
-    Raises:
-        Exception: If rendering fails
     """
     browser = await _get_browser()
-    context = None
-    page = None
+    context: Optional[BrowserContext] = None
+    page: Optional[Page] = None
     
     try:
-        # Create a new context with desktop settings
+        # Create context with desktop settings
         context = await browser.new_context(
             user_agent=DESKTOP_USER_AGENT,
             viewport={'width': 1920, 'height': 1080},
             locale='en-US',
             timezone_id='America/New_York',
             java_script_enabled=True,
+            bypass_csp=True,  # Bypass Content Security Policy
         )
         
-        # Create page
         page = await context.new_page()
         
-        # Block resources if enabled
-        if block_resources:
-            await page.route('**/*', _block_resources)
+        # Set extra headers
+        await page.set_extra_http_headers({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+        })
         
-        # Navigate to URL
         logger.info(f"Rendering URL: {url}")
         
+        # Step 1: Navigate with domcontentloaded (faster initial load)
         try:
             response = await page.goto(
                 url,
-                wait_until='networkidle' if wait_for_network else 'domcontentloaded',
+                wait_until='domcontentloaded',
                 timeout=timeout_ms
             )
             
             if response and response.status >= 400:
-                raise Exception(f"HTTP error {response.status}")
+                logger.warning(f"HTTP {response.status} for {url}")
                 
-        except PlaywrightTimeout:
-            logger.warning(f"Timeout waiting for network idle, continuing with current state")
+        except Exception as e:
+            logger.warning(f"Initial navigation issue: {e}")
         
-        # Handle JS redirects - wait a bit and check URL
-        await asyncio.sleep(0.5)
-        current_url = page.url
-        if current_url != url:
-            logger.info(f"Detected redirect: {url} -> {current_url}")
+        # Step 2: Wait for WordPress/JS content containers
+        await _wait_for_content_ready(page)
         
-        # Handle cookie consent popups
-        if handle_cookies:
-            await _handle_cookie_consent(page)
+        # Step 3: Scroll to bottom to trigger lazy loading
+        try:
+            scroll_result = await page.evaluate(SCROLL_SCRIPT)
+            logger.info(f"Scroll complete: height={scroll_result.get('totalHeight', 0)}, scrolls={scroll_result.get('scrollCount', 0)}")
+        except Exception as e:
+            logger.warning(f"Scroll failed: {e}")
+            # Fallback simple scroll
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         
-        # Extra wait for any lazy-loaded content
-        if extra_wait_ms > 0:
-            await asyncio.sleep(extra_wait_ms / 1000)
+        # Step 4: Wait after scroll for lazy content
+        await asyncio.sleep(scroll_wait_ms / 1000)
         
-        # Scroll to trigger lazy loading
-        await page.evaluate('''
-            () => {
-                window.scrollTo(0, document.body.scrollHeight / 2);
-            }
-        ''')
-        await asyncio.sleep(0.3)
+        # Step 5: Click cookie consent buttons
+        await _click_cookie_consent(page)
         
-        # Scroll back to top
-        await page.evaluate('() => window.scrollTo(0, 0)')
+        # Step 6: Wait for networkidle (AJAX content)
+        try:
+            await page.wait_for_load_state('networkidle', timeout=10000)
+            logger.info("Network idle reached")
+        except Exception as e:
+            logger.warning(f"Network idle timeout: {e}")
         
-        # Get the rendered HTML
+        # Step 7: Final wait for any remaining dynamic content
+        await asyncio.sleep(final_wait_ms / 1000)
+        
+        # Step 8: Check for and handle any remaining modals/overlays
+        modal_selectors = [
+            '.modal-backdrop',
+            '.overlay',
+            '[class*="popup"]',
+            '[class*="modal"]',
+        ]
+        for selector in modal_selectors:
+            try:
+                modal = page.locator(selector)
+                if await modal.count() > 0 and await modal.first.is_visible():
+                    # Try to close it
+                    close_btn = page.locator(f'{selector} button:has-text("Close"), {selector} .close, {selector} [aria-label="Close"]').first
+                    if await close_btn.count() > 0:
+                        await close_btn.click(timeout=1000)
+            except:
+                continue
+        
+        # Step 9: Get the fully rendered HTML
         html_content = await page.content()
         
-        logger.info(f"Successfully rendered {url} ({len(html_content)} bytes)")
+        content_length = len(html_content)
+        logger.info(f"Successfully rendered {url} ({content_length} bytes)")
+        
         return html_content
         
     except Exception as e:
-        logger.error(f"Failed to render {url}: {str(e)}")
+        logger.error(f"Render failed for {url}: {str(e)}")
         raise Exception(f"Playwright rendering failed: {str(e)}")
         
     finally:
-        # Clean up
         if page:
             await page.close()
         if context:
@@ -230,23 +368,18 @@ async def get_rendered_html_async(
 
 def get_rendered_html(
     url: str,
-    wait_for_network: bool = True,
-    handle_cookies: bool = True,
-    block_resources: bool = True,
-    timeout_ms: int = 30000,
-    extra_wait_ms: int = 1000
+    timeout_ms: int = 45000,
+    scroll_wait_ms: int = 1500,
+    final_wait_ms: int = 1000
 ) -> str:
     """
     Synchronous wrapper for get_rendered_html_async.
-    Creates a new event loop if needed.
     
     Args:
         url: The URL to render
-        wait_for_network: Wait for network to be idle
-        handle_cookies: Try to auto-click cookie consent popups
-        block_resources: Block CSS/images/fonts for speed
-        timeout_ms: Page load timeout in milliseconds
-        extra_wait_ms: Additional wait time after load
+        timeout_ms: Total page load timeout
+        scroll_wait_ms: Wait time after scrolling
+        final_wait_ms: Final wait before capturing
         
     Returns:
         Fully rendered HTML string
@@ -254,36 +387,24 @@ def get_rendered_html(
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # If we're already in an async context, create a new thread
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     asyncio.run,
-                    get_rendered_html_async(
-                        url, wait_for_network, handle_cookies, 
-                        block_resources, timeout_ms, extra_wait_ms
-                    )
+                    get_rendered_html_async(url, timeout_ms, scroll_wait_ms, final_wait_ms)
                 )
                 return future.result()
         else:
             return loop.run_until_complete(
-                get_rendered_html_async(
-                    url, wait_for_network, handle_cookies,
-                    block_resources, timeout_ms, extra_wait_ms
-                )
+                get_rendered_html_async(url, timeout_ms, scroll_wait_ms, final_wait_ms)
             )
     except RuntimeError:
-        # No event loop, create one
         return asyncio.run(
-            get_rendered_html_async(
-                url, wait_for_network, handle_cookies,
-                block_resources, timeout_ms, extra_wait_ms
-            )
+            get_rendered_html_async(url, timeout_ms, scroll_wait_ms, final_wait_ms)
         )
 
 
 async def cleanup():
     """Clean up browser resources. Call on application shutdown."""
     await _close_browser()
-    logger.info("Playwright browser cleaned up")
-
+    logger.info("Playwright resources cleaned up")

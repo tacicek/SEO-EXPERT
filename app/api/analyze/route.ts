@@ -41,9 +41,9 @@ export async function POST(request: NextRequest) {
               console.log('Using Playwright backend for content extraction');
               const extractedContent = await extractContentWithPlaywright(url, {
                 usePlaywright: true,
-                waitForNetwork: true,
-                handleCookies: true,
-                blockResources: true,
+                timeoutMs: 45000,
+                scrollWaitMs: 1500,
+                finalWaitMs: 1000,
               });
               
               // Convert to ScrapedContent format

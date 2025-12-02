@@ -5,27 +5,33 @@ Includes text cleaning, URL manipulation, and data normalization.
 
 import re
 import unicodedata
-from typing import List, Optional, Any
+from typing import List, Optional, Any, TypeVar
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+import html
+
+T = TypeVar('T')
 
 # Common tracking parameters to strip
 TRACKING_PARAMS = [
     # Google Analytics / Ads
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
-    'gclid', 'gclsrc', 'dclid',
+    'gclid', 'gclsrc', 'dclid', 'gbraid', 'wbraid',
     # Facebook
-    'fbclid', 'fb_action_ids', 'fb_action_types', 'fb_source',
+    'fbclid', 'fb_action_ids', 'fb_action_types', 'fb_source', 'fb_ref',
     # Microsoft / Bing
     'msclkid',
-    # Other common trackers
-    'ref', 'referrer', 'source', 'mc_cid', 'mc_eid',
-    '_ga', '_gl', '_hsenc', '_hsmi', 'hsa_acc', 'hsa_cam',
-    'hsa_grp', 'hsa_ad', 'hsa_src', 'hsa_tgt', 'hsa_kw',
-    'hsa_mt', 'hsa_net', 'hsa_ver',
-    # Affiliate / tracking
+    # Twitter
+    'twclid',
+    # HubSpot
+    '_hsenc', '_hsmi', 'hsa_acc', 'hsa_cam', 'hsa_grp', 'hsa_ad',
+    'hsa_src', 'hsa_tgt', 'hsa_kw', 'hsa_mt', 'hsa_net', 'hsa_ver',
+    # Mailchimp
+    'mc_cid', 'mc_eid',
+    # Other
+    'ref', 'referrer', 'source', '_ga', '_gl',
     'affiliate', 'partner', 'campaign_id', 'ad_id',
-    # Session / misc
     'sessionid', 'session_id', 'sid', 'PHPSESSID',
+    'trk', 'clickid', 'zanpid', 'irclickid',
 ]
 
 
@@ -33,10 +39,11 @@ def clean_text(text: Optional[str]) -> str:
     """
     Clean and normalize text content.
     
-    - Removes extra whitespace
-    - Strips leading/trailing spaces
-    - Normalizes unicode characters
+    - Decodes HTML entities
     - Removes control characters
+    - Normalizes unicode
+    - Collapses whitespace
+    - Strips leading/trailing whitespace
     
     Args:
         text: Input text to clean
@@ -47,23 +54,32 @@ def clean_text(text: Optional[str]) -> str:
     if not text:
         return ''
     
-    # Convert to string if needed
+    # Convert to string
     text = str(text)
     
-    # Normalize unicode
+    # Decode HTML entities
+    text = html.unescape(text)
+    
+    # Normalize unicode (NFKC = compatibility decomposition + canonical composition)
     text = unicodedata.normalize('NFKC', text)
     
-    # Remove control characters (except newlines and tabs temporarily)
+    # Remove control characters except newlines/tabs
     text = ''.join(
-        char for char in text 
-        if unicodedata.category(char) != 'Cc' or char in '\n\t'
+        char for char in text
+        if unicodedata.category(char) != 'Cc' or char in '\n\t\r'
     )
     
-    # Replace tabs and newlines with spaces
-    text = text.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+    # Replace various whitespace characters with regular space
+    text = re.sub(r'[\t\r\f\v]+', ' ', text)
     
-    # Normalize whitespace
-    text = ' '.join(text.split())
+    # Replace multiple newlines with double newline
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    
+    # Replace single newlines with space
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    
+    # Collapse multiple spaces
+    text = re.sub(r' +', ' ', text)
     
     # Strip
     text = text.strip()
@@ -73,7 +89,7 @@ def clean_text(text: Optional[str]) -> str:
 
 def normalize_whitespace(text: Optional[str]) -> str:
     """
-    Normalize whitespace while preserving paragraph breaks.
+    Normalize whitespace while preserving paragraph structure.
     
     Args:
         text: Input text
@@ -84,25 +100,30 @@ def normalize_whitespace(text: Optional[str]) -> str:
     if not text:
         return ''
     
-    # Replace multiple newlines with double newline (paragraph)
-    text = re.sub(r'\n\s*\n', '\n\n', text)
+    # Replace various whitespace
+    text = re.sub(r'[\t\r\f\v]+', ' ', text)
     
-    # Replace single newlines with space
-    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    # Normalize multiple newlines to double (paragraph break)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     
-    # Normalize multiple spaces to single space
-    text = re.sub(r' +', ' ', text)
+    # Replace single newlines with space (within paragraph)
+    lines = text.split('\n\n')
+    cleaned_lines = []
+    for line in lines:
+        # Within each paragraph, collapse newlines to spaces
+        line = re.sub(r'\n', ' ', line)
+        # Collapse multiple spaces
+        line = re.sub(r' +', ' ', line)
+        line = line.strip()
+        if line:
+            cleaned_lines.append(line)
     
-    # Clean up around newlines
-    text = re.sub(r' *\n *', '\n', text)
-    
-    # Limit consecutive newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = '\n\n'.join(cleaned_lines)
     
     return text.strip()
 
 
-def dedupe(items: List[Any]) -> List[Any]:
+def dedupe(items: List[T]) -> List[T]:
     """
     Remove duplicate items from list while preserving order.
     
@@ -112,13 +133,21 @@ def dedupe(items: List[Any]) -> List[Any]:
     Returns:
         List with duplicates removed
     """
+    if not items:
+        return []
+    
     seen = set()
     result = []
     
     for item in items:
-        # Handle unhashable types
+        # Create hashable key
         try:
-            key = item if isinstance(item, (str, int, float, bool, tuple)) else str(item)
+            if isinstance(item, (str, int, float, bool, tuple)):
+                key = item
+            elif isinstance(item, dict):
+                key = tuple(sorted(item.items()))
+            else:
+                key = str(item)
         except:
             key = id(item)
         
@@ -149,7 +178,7 @@ def strip_tracking_params(url: str) -> str:
         params = parse_qs(parsed.query, keep_blank_values=False)
         
         # Remove tracking params (case-insensitive)
-        tracking_lower = [p.lower() for p in TRACKING_PARAMS]
+        tracking_lower = {p.lower() for p in TRACKING_PARAMS}
         clean_params = {
             k: v for k, v in params.items()
             if k.lower() not in tracking_lower
@@ -164,24 +193,18 @@ def strip_tracking_params(url: str) -> str:
             parsed.path,
             parsed.params,
             clean_query,
-            ''  # Remove fragment too
+            ''  # Remove fragment
         ))
         
         return clean_url
         
     except Exception:
-        # Return original if parsing fails
         return url
 
 
 def normalize_url(url: str) -> str:
     """
     Normalize URL for consistent comparison.
-    
-    - Lowercases scheme and host
-    - Removes trailing slashes
-    - Removes tracking params
-    - Removes fragments
     
     Args:
         url: URL to normalize
@@ -193,7 +216,7 @@ def normalize_url(url: str) -> str:
         return ''
     
     try:
-        # Strip tracking params first
+        # Strip tracking params
         url = strip_tracking_params(url)
         
         parsed = urlparse(url)
@@ -202,11 +225,15 @@ def normalize_url(url: str) -> str:
         scheme = parsed.scheme.lower()
         netloc = parsed.netloc.lower()
         
+        # Remove www prefix for comparison
+        if netloc.startswith('www.'):
+            netloc = netloc[4:]
+        
         # Remove default ports
-        if netloc.endswith(':80') and scheme == 'http':
-            netloc = netloc[:-3]
-        elif netloc.endswith(':443') and scheme == 'https':
-            netloc = netloc[:-4]
+        if ':80' in netloc and scheme == 'http':
+            netloc = netloc.replace(':80', '')
+        if ':443' in netloc and scheme == 'https':
+            netloc = netloc.replace(':443', '')
         
         # Normalize path
         path = parsed.path
@@ -216,12 +243,7 @@ def normalize_url(url: str) -> str:
             path = '/'
         
         return urlunparse((
-            scheme,
-            netloc,
-            path,
-            '',  # params
-            parsed.query,
-            ''   # fragment
+            scheme, netloc, path, '', parsed.query, ''
         ))
         
     except Exception:
@@ -229,62 +251,36 @@ def normalize_url(url: str) -> str:
 
 
 def extract_domain(url: str) -> str:
-    """
-    Extract domain from URL.
-    
-    Args:
-        url: Full URL
-        
-    Returns:
-        Domain name
-    """
+    """Extract domain from URL."""
     if not url:
         return ''
     
     try:
         parsed = urlparse(url)
-        return parsed.netloc.lower()
+        domain = parsed.netloc.lower()
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        return domain
     except:
         return ''
 
 
 def is_internal_link(url: str, base_domain: str) -> bool:
-    """
-    Check if URL is internal to the base domain.
-    
-    Args:
-        url: URL to check
-        base_domain: Base domain to compare against
-        
-    Returns:
-        True if internal link
-    """
+    """Check if URL is internal to base domain."""
     if not url or not base_domain:
         return False
     
     url_domain = extract_domain(url)
     base_domain = base_domain.lower().replace('www.', '')
-    url_domain = url_domain.replace('www.', '')
     
     return url_domain == base_domain or url_domain.endswith('.' + base_domain)
 
 
 def truncate_text(text: str, max_length: int = 200, suffix: str = '...') -> str:
-    """
-    Truncate text to maximum length at word boundary.
-    
-    Args:
-        text: Text to truncate
-        max_length: Maximum length
-        suffix: Suffix to add if truncated
-        
-    Returns:
-        Truncated text
-    """
+    """Truncate text at word boundary."""
     if not text or len(text) <= max_length:
         return text or ''
     
-    # Find last space before max_length
     truncated = text[:max_length]
     last_space = truncated.rfind(' ')
     
@@ -302,46 +298,59 @@ def count_words(text: str) -> int:
 
 
 def count_sentences(text: str) -> int:
-    """Count sentences in text (approximate)."""
+    """Count sentences (approximate)."""
     if not text:
         return 0
-    # Count sentence-ending punctuation
     return len(re.findall(r'[.!?]+(?:\s|$)', text))
 
 
-def extract_numbers(text: str) -> List[float]:
-    """Extract all numbers from text."""
+def count_paragraphs(text: str) -> int:
+    """Count paragraphs (double newline separated)."""
     if not text:
-        return []
+        return 0
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    return len(paragraphs)
+
+
+def extract_first_paragraph(text: str, min_words: int = 10) -> str:
+    """Extract first meaningful paragraph."""
+    if not text:
+        return ''
     
-    # Match integers and decimals
-    numbers = re.findall(r'-?\d+\.?\d*', text)
-    result = []
+    paragraphs = text.split('\n\n')
+    for p in paragraphs:
+        p = p.strip()
+        if count_words(p) >= min_words:
+            return p
     
-    for num in numbers:
-        try:
-            result.append(float(num))
-        except ValueError:
-            continue
+    return paragraphs[0].strip() if paragraphs else ''
+
+
+def sanitize_for_json(text: str) -> str:
+    """Sanitize text for safe JSON serialization."""
+    if not text:
+        return ''
     
-    return result
+    # Remove control characters
+    text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\t')
+    
+    # Escape special characters
+    text = text.replace('\\', '\\\\')
+    text = text.replace('"', '\\"')
+    text = text.replace('\n', '\\n')
+    text = text.replace('\r', '\\r')
+    text = text.replace('\t', '\\t')
+    
+    return text
 
 
 def sanitize_filename(name: str) -> str:
-    """
-    Sanitize string for use as filename.
-    
-    Args:
-        name: Original name
-        
-    Returns:
-        Safe filename
-    """
+    """Sanitize string for use as filename."""
     if not name:
         return 'unnamed'
     
     # Remove/replace invalid characters
-    name = re.sub(r'[<>:"/\\|?*]', '-', name)
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', name)
     name = re.sub(r'\s+', '_', name)
     name = re.sub(r'-+', '-', name)
     name = re.sub(r'_+', '_', name)
@@ -351,4 +360,3 @@ def sanitize_filename(name: str) -> str:
         name = name[:200]
     
     return name.strip('-_') or 'unnamed'
-

@@ -29,15 +29,15 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     url: HttpUrl
     use_playwright: Optional[bool] = True  # Use Playwright by default
-    wait_for_network: Optional[bool] = True
-    handle_cookies: Optional[bool] = True
+    timeout_ms: Optional[int] = 45000
+    scroll_wait_ms: Optional[int] = 1500
 
 class ScrapeRequest(BaseModel):
     url: HttpUrl
     use_playwright: Optional[bool] = True
-    wait_for_network: Optional[bool] = True
-    handle_cookies: Optional[bool] = True
-    block_resources: Optional[bool] = True
+    timeout_ms: Optional[int] = 45000
+    scroll_wait_ms: Optional[int] = 1500
+    final_wait_ms: Optional[int] = 1000
 
 class HealthResponse(BaseModel):
     status: str
@@ -111,28 +111,33 @@ async def scrape_url(request: ScrapeRequest):
     """
     Scrape and extract content from a URL using Playwright.
     Returns structured content including headings, paragraphs, lists, etc.
+    Optimized for WordPress and JS-rendered sites.
     """
     try:
         url_str = str(request.url)
-        logger.info(f"Scraping URL: {url_str}")
+        logger.info(f"Scraping URL: {url_str} (Playwright: {request.use_playwright})")
         
         from app.scraper.renderer import get_rendered_html_async
-        from app.scraper.extractor import extract_content
+        from app.scraper.extractor import extract_content, extract_full_text
         from app.utils.fetcher import fetch_html
         
         # Fetch HTML
         if request.use_playwright:
             html_content = await get_rendered_html_async(
                 url_str,
-                wait_for_network=request.wait_for_network,
-                handle_cookies=request.handle_cookies,
-                block_resources=request.block_resources
+                timeout_ms=request.timeout_ms or 45000,
+                scroll_wait_ms=request.scroll_wait_ms or 1500,
+                final_wait_ms=request.final_wait_ms or 1000
             )
         else:
             html_content = await fetch_html(url_str)
         
-        # Extract content
+        # Extract content using full DOM walker
         content_data = extract_content(html_content)
+        
+        # Log extraction stats
+        word_count = content_data.get('metadata', {}).get('word_count', 0)
+        logger.info(f"Extracted {word_count} words from {url_str}")
         
         return ScrapeResponse(
             url=url_str,
@@ -140,7 +145,7 @@ async def scrape_url(request: ScrapeRequest):
             success=True,
             content=content_data,
             metadata={
-                "word_count": content_data.get('metadata', {}).get('word_count', 0),
+                "word_count": word_count,
                 "character_count": content_data.get('metadata', {}).get('character_count', 0),
                 "sentence_count": content_data.get('metadata', {}).get('sentence_count', 0),
                 "headings_count": len(content_data.get('headings', [])),
@@ -184,13 +189,14 @@ async def analyze_url(request: AnalyzeRequest):
             
             html_content = await get_rendered_html_async(
                 url_str,
-                wait_for_network=request.wait_for_network,
-                handle_cookies=request.handle_cookies,
-                block_resources=True  # Block for analysis (faster)
+                timeout_ms=request.timeout_ms or 45000,
+                scroll_wait_ms=request.scroll_wait_ms or 1500,
+                final_wait_ms=1000
             )
             
-            # Extract structured content
+            # Extract structured content using full DOM walker
             extracted_content = extract_content(html_content)
+            logger.info(f"Playwright extracted {extracted_content.get('metadata', {}).get('word_count', 0)} words")
         else:
             html_content = await fetch_html(url_str)
             extracted_content = None
@@ -327,28 +333,33 @@ async def extract_content_endpoint(request: ScrapeRequest):
     """
     Extract content from URL for EEAT analysis.
     Returns full_text suitable for AI analysis.
+    Uses full DOM walker for complete content extraction.
     """
     try:
         url_str = str(request.url)
         logger.info(f"Extracting content from: {url_str}")
         
         from app.scraper.renderer import get_rendered_html_async
-        from app.scraper.extractor import extract_content
+        from app.scraper.extractor import extract_content, extract_full_text
         from app.utils.fetcher import fetch_html
         
-        # Fetch HTML
+        # Fetch HTML using Playwright for full JS rendering
         if request.use_playwright:
             html_content = await get_rendered_html_async(
                 url_str,
-                wait_for_network=request.wait_for_network,
-                handle_cookies=request.handle_cookies,
-                block_resources=request.block_resources
+                timeout_ms=request.timeout_ms or 45000,
+                scroll_wait_ms=request.scroll_wait_ms or 1500,
+                final_wait_ms=request.final_wait_ms or 1000
             )
         else:
             html_content = await fetch_html(url_str)
         
-        # Extract content
+        # Extract content using full DOM walker
         content_data = extract_content(html_content)
+        
+        # Log extraction result
+        word_count = content_data.get('metadata', {}).get('word_count', 0)
+        logger.info(f"Extracted {word_count} words from {url_str}")
         
         return {
             "url": url_str,

@@ -60,16 +60,16 @@ export interface PlaywrightExtractedContent {
 
 export interface PlaywrightScrapeOptions {
   usePlaywright?: boolean;
-  waitForNetwork?: boolean;
-  handleCookies?: boolean;
-  blockResources?: boolean;
+  timeoutMs?: number;
+  scrollWaitMs?: number;
+  finalWaitMs?: number;
 }
 
 const DEFAULT_OPTIONS: PlaywrightScrapeOptions = {
   usePlaywright: true,
-  waitForNetwork: true,
-  handleCookies: true,
-  blockResources: true,
+  timeoutMs: 45000,
+  scrollWaitMs: 1500,
+  finalWaitMs: 1000,
 };
 
 /**
@@ -124,9 +124,9 @@ export async function extractContentWithPlaywright(
       body: JSON.stringify({
         url: url,
         use_playwright: opts.usePlaywright,
-        wait_for_network: opts.waitForNetwork,
-        handle_cookies: opts.handleCookies,
-        block_resources: opts.blockResources,
+        timeout_ms: opts.timeoutMs,
+        scroll_wait_ms: opts.scrollWaitMs,
+        final_wait_ms: opts.finalWaitMs,
       }),
     });
 
@@ -182,9 +182,9 @@ export async function scrapeWithPlaywright(
       body: JSON.stringify({
         url: url,
         use_playwright: opts.usePlaywright,
-        wait_for_network: opts.waitForNetwork,
-        handle_cookies: opts.handleCookies,
-        block_resources: opts.blockResources,
+        timeout_ms: opts.timeoutMs,
+        scroll_wait_ms: opts.scrollWaitMs,
+        final_wait_ms: opts.finalWaitMs,
       }),
     });
 
@@ -239,8 +239,8 @@ export async function analyzeWithPlaywright(
       body: JSON.stringify({
         url: url,
         use_playwright: opts.usePlaywright,
-        wait_for_network: opts.waitForNetwork,
-        handle_cookies: opts.handleCookies,
+        timeout_ms: opts.timeoutMs,
+        scroll_wait_ms: opts.scrollWaitMs,
       }),
     });
 
