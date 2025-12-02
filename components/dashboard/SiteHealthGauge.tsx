@@ -96,3 +96,5 @@ export function SiteHealthGauge({ score, lastAnalyzed }: SiteHealthGaugeProps) {
   );
 }
 
+
+

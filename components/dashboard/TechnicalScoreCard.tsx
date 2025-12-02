@@ -73,3 +73,5 @@ export function TechnicalScoreCard({ title, score, icon, description, trend }: T
   );
 }
 
+
+

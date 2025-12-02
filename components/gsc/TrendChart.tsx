@@ -90,3 +90,5 @@ export function TrendChart({ data, title = "Performance Trend", metric = 'clicks
     );
 }
 
+
+

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from typing import Optional, Dict, Any, List
 import logging
 from datetime import datetime
 
@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Technical SEO Analyzer",
-    description="AI-powered technical SEO analysis microservice",
-    version="1.0.0"
+    description="AI-powered technical SEO analysis microservice with Playwright rendering",
+    version="2.0.0"
 )
 
 # CORS middleware
@@ -28,12 +28,23 @@ app.add_middleware(
 # Models
 class AnalyzeRequest(BaseModel):
     url: HttpUrl
+    use_playwright: Optional[bool] = True  # Use Playwright by default
+    wait_for_network: Optional[bool] = True
+    handle_cookies: Optional[bool] = True
+
+class ScrapeRequest(BaseModel):
+    url: HttpUrl
+    use_playwright: Optional[bool] = True
+    wait_for_network: Optional[bool] = True
+    handle_cookies: Optional[bool] = True
+    block_resources: Optional[bool] = True
 
 class HealthResponse(BaseModel):
     status: str
     timestamp: str
     service: str
     version: str
+    playwright_ready: bool
 
 class AnalyzeResponse(BaseModel):
     url: str
@@ -47,28 +58,114 @@ class AnalyzeResponse(BaseModel):
     content_quality: dict
     issues: list
     recommendations: list
+    # New fields from scraper
+    extracted_content: Optional[Dict[str, Any]] = None
+
+class ScrapeResponse(BaseModel):
+    url: str
+    scraped_at: str
+    success: bool
+    content: Dict[str, Any]
+    metadata: Dict[str, Any]
+
+# Startup event - initialize Playwright
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on startup."""
+    logger.info("Starting Technical SEO Analyzer with Playwright support")
+
+# Shutdown event - cleanup Playwright
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown."""
+    try:
+        from app.scraper.renderer import cleanup
+        await cleanup()
+        logger.info("Playwright cleaned up successfully")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint for monitoring"""
+    playwright_ready = False
+    try:
+        # Quick check if playwright is importable
+        from app.scraper.renderer import _browser
+        playwright_ready = True
+    except:
+        pass
+    
     return HealthResponse(
         status="healthy",
         timestamp=datetime.utcnow().isoformat(),
         service="Technical SEO Analyzer",
-        version="1.0.0"
+        version="2.0.0",
+        playwright_ready=playwright_ready
     )
 
-# Analysis endpoint
+# New scrape-only endpoint
+@app.post("/scrape", response_model=ScrapeResponse)
+async def scrape_url(request: ScrapeRequest):
+    """
+    Scrape and extract content from a URL using Playwright.
+    Returns structured content including headings, paragraphs, lists, etc.
+    """
+    try:
+        url_str = str(request.url)
+        logger.info(f"Scraping URL: {url_str}")
+        
+        from app.scraper.renderer import get_rendered_html_async
+        from app.scraper.extractor import extract_content
+        from app.utils.fetcher import fetch_html
+        
+        # Fetch HTML
+        if request.use_playwright:
+            html_content = await get_rendered_html_async(
+                url_str,
+                wait_for_network=request.wait_for_network,
+                handle_cookies=request.handle_cookies,
+                block_resources=request.block_resources
+            )
+        else:
+            html_content = await fetch_html(url_str)
+        
+        # Extract content
+        content_data = extract_content(html_content)
+        
+        return ScrapeResponse(
+            url=url_str,
+            scraped_at=datetime.utcnow().isoformat(),
+            success=True,
+            content=content_data,
+            metadata={
+                "word_count": content_data.get('metadata', {}).get('word_count', 0),
+                "character_count": content_data.get('metadata', {}).get('character_count', 0),
+                "sentence_count": content_data.get('metadata', {}).get('sentence_count', 0),
+                "headings_count": len(content_data.get('headings', [])),
+                "paragraphs_count": len(content_data.get('paragraphs', [])),
+                "lists_count": len(content_data.get('lists', [])),
+                "tables_count": len(content_data.get('tables', [])),
+                "used_playwright": request.use_playwright,
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Scraping failed for {request.url}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+# Analysis endpoint with Playwright integration
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_url(request: AnalyzeRequest):
     """
     Analyze a URL for technical SEO issues.
+    Uses Playwright for JavaScript rendering when enabled.
     Returns comprehensive analysis including meta tags, headings, images, etc.
     """
     try:
         url_str = str(request.url)
-        logger.info(f"Analyzing URL: {url_str}")
+        logger.info(f"Analyzing URL: {url_str} (Playwright: {request.use_playwright})")
         
         # Import analyzers (lazy import to avoid startup issues)
         from app.analyzers.meta import MetaAnalyzer
@@ -80,8 +177,23 @@ async def analyze_url(request: AnalyzeRequest):
         from app.utils.fetcher import fetch_html
         from app.utils.scorer import calculate_overall_score
         
-        # Fetch HTML
-        html_content = await fetch_html(url_str)
+        # Fetch HTML using Playwright or standard HTTP
+        if request.use_playwright:
+            from app.scraper.renderer import get_rendered_html_async
+            from app.scraper.extractor import extract_content
+            
+            html_content = await get_rendered_html_async(
+                url_str,
+                wait_for_network=request.wait_for_network,
+                handle_cookies=request.handle_cookies,
+                block_resources=True  # Block for analysis (faster)
+            )
+            
+            # Extract structured content
+            extracted_content = extract_content(html_content)
+        else:
+            html_content = await fetch_html(url_str)
+            extracted_content = None
         
         # Run all analyzers
         meta_analyzer = MetaAnalyzer(url_str, html_content)
@@ -97,6 +209,19 @@ async def analyze_url(request: AnalyzeRequest):
         url_result = url_analyzer.analyze()
         schema_result = schema_analyzer.analyze()
         content_result = content_analyzer.analyze()
+        
+        # If we have extracted content, enhance content_result
+        if extracted_content:
+            content_result['extracted'] = {
+                'full_text': extracted_content.get('full_text', ''),
+                'word_count': extracted_content.get('metadata', {}).get('word_count', 0),
+                'headings': extracted_content.get('headings', []),
+                'paragraphs': [p.get('text', '') for p in extracted_content.get('paragraphs', [])],
+                'lists': extracted_content.get('lists', []),
+                'tables': extracted_content.get('tables', []),
+                'blockquotes': extracted_content.get('blockquotes', []),
+                'elements_in_order': extracted_content.get('elements_in_order', []),
+            }
         
         # Calculate scores
         scores = calculate_overall_score({
@@ -131,7 +256,8 @@ async def analyze_url(request: AnalyzeRequest):
             schema_markup=schema_result,
             content_quality=content_result,
             issues=sorted(all_issues, key=lambda x: {'high': 0, 'medium': 1, 'low': 2}.get(x.get('impact', 'low'), 2)),
-            recommendations=recommendations[:10]  # Top 10 recommendations
+            recommendations=recommendations[:10],  # Top 10 recommendations
+            extracted_content=extracted_content
         )
         
     except Exception as e:
@@ -177,6 +303,7 @@ async def quick_analyze(request: AnalyzeRequest):
         from app.analyzers.meta import MetaAnalyzer
         from app.utils.fetcher import fetch_html
         
+        # Use standard HTTP for quick analysis (faster)
         html_content = await fetch_html(url_str)
         meta_analyzer = MetaAnalyzer(url_str, html_content)
         meta_result = meta_analyzer.analyze()
@@ -194,17 +321,79 @@ async def quick_analyze(request: AnalyzeRequest):
         logger.error(f"Quick analysis failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Content extraction endpoint (for EEAT analysis)
+@app.post("/extract")
+async def extract_content_endpoint(request: ScrapeRequest):
+    """
+    Extract content from URL for EEAT analysis.
+    Returns full_text suitable for AI analysis.
+    """
+    try:
+        url_str = str(request.url)
+        logger.info(f"Extracting content from: {url_str}")
+        
+        from app.scraper.renderer import get_rendered_html_async
+        from app.scraper.extractor import extract_content
+        from app.utils.fetcher import fetch_html
+        
+        # Fetch HTML
+        if request.use_playwright:
+            html_content = await get_rendered_html_async(
+                url_str,
+                wait_for_network=request.wait_for_network,
+                handle_cookies=request.handle_cookies,
+                block_resources=request.block_resources
+            )
+        else:
+            html_content = await fetch_html(url_str)
+        
+        # Extract content
+        content_data = extract_content(html_content)
+        
+        return {
+            "url": url_str,
+            "extracted_at": datetime.utcnow().isoformat(),
+            "title": content_data.get('metadata', {}).get('title', ''),
+            "meta_description": content_data.get('metadata', {}).get('meta_description', ''),
+            "full_text": content_data.get('full_text', ''),
+            "headings": content_data.get('headings', []),
+            "paragraphs": content_data.get('paragraphs', []),
+            "lists": content_data.get('lists', []),
+            "tables": content_data.get('tables', []),
+            "blockquotes": content_data.get('blockquotes', []),
+            "elements_in_order": content_data.get('elements_in_order', []),
+            "html": content_data.get('html', ''),
+            "statistics": {
+                "word_count": content_data.get('metadata', {}).get('word_count', 0),
+                "character_count": content_data.get('metadata', {}).get('character_count', 0),
+                "sentence_count": content_data.get('metadata', {}).get('sentence_count', 0),
+            },
+            "used_playwright": request.use_playwright,
+        }
+        
+    except Exception as e:
+        logger.error(f"Content extraction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+
 # Root endpoint
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
         "service": "Technical SEO Analyzer",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "features": [
+            "Playwright-powered JavaScript rendering",
+            "Cookie consent auto-handling",
+            "Structured content extraction",
+            "Technical SEO analysis"
+        ],
         "endpoints": {
             "health": "/health",
-            "analyze": "POST /analyze",
-            "quick_analyze": "POST /analyze/quick"
+            "analyze": "POST /analyze (full analysis with Playwright)",
+            "quick_analyze": "POST /analyze/quick (fast, basic analysis)",
+            "scrape": "POST /scrape (content scraping only)",
+            "extract": "POST /extract (content extraction for EEAT)"
         }
     }
 

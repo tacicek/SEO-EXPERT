@@ -192,3 +192,5 @@ export interface DashboardTechnicalData {
   quick_wins: string[];
 }
 
+
+

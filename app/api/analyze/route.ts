@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeContent } from '@/lib/ai/analyzer';
 import { fetchAndParseURL, type ScrapedContent } from '@/lib/scraper/content-fetcher';
+import { 
+  isBackendAvailable, 
+  extractContentWithPlaywright, 
+  convertToScrapedContent 
+} from '@/lib/services/playwright-scraper';
 import type { AnalysisRequest, AnalysisResponse, ContentLinkInfo, ContentElementInfo } from '@/lib/types/analysis';
 
 export async function POST(request: NextRequest) {
   try {
     const body: AnalysisRequest = await request.json();
-    const { url, content, title } = body;
+    const { url, content, title, usePlaywright = true } = body as AnalysisRequest & { usePlaywright?: boolean };
 
     // Validate input
     if (!url && !content) {
@@ -26,9 +31,47 @@ export async function POST(request: NextRequest) {
     // If URL is provided, fetch content with HTML preservation
     if (url) {
       try {
-        scrapedData = await fetchAndParseURL(url);
-        textToAnalyze = scrapedData.content;
-        titleToUse = title || scrapedData.title;
+        // Try Playwright backend first if enabled and available
+        let playwrightUsed = false;
+        
+        if (usePlaywright) {
+          try {
+            const backendAvailable = await isBackendAvailable();
+            if (backendAvailable) {
+              console.log('Using Playwright backend for content extraction');
+              const extractedContent = await extractContentWithPlaywright(url, {
+                usePlaywright: true,
+                waitForNetwork: true,
+                handleCookies: true,
+                blockResources: true,
+              });
+              
+              // Convert to ScrapedContent format
+              scrapedData = convertToScrapedContent(extractedContent) as ScrapedContent;
+              textToAnalyze = scrapedData.content;
+              titleToUse = title || scrapedData.title;
+              playwrightUsed = true;
+              
+              console.log('Playwright extraction successful:', {
+                title: scrapedData.title,
+                wordCount: scrapedData.wordCount,
+                elementsCount: scrapedData.contentElements?.length || 0,
+              });
+            }
+          } catch (playwrightError) {
+            console.warn('Playwright backend not available or failed, falling back to standard scraping:', playwrightError);
+          }
+        }
+        
+        // Fallback to standard scraping if Playwright wasn't used
+        if (!playwrightUsed) {
+          console.log('Using standard content fetcher');
+          scrapedData = await fetchAndParseURL(url);
+          textToAnalyze = scrapedData.content;
+          titleToUse = title || scrapedData.title;
+        }
+        
+        scrapedData = scrapedData!;
 
         console.log('Scraped content info:', {
           title: scrapedData.title,
